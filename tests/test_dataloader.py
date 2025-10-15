@@ -113,10 +113,10 @@ def test_grid_cell_assignment():
     dataset = MockYOLODataset(num_samples=1, S=7, B=2, C=3)
 
     # Create annotation at specific grid cell
-    bboxes = [[0.5, 0.5, 0.1, 0.1]]  # Center of image
+    bboxes = [[0.5, 0.5, 0.1, 0.1]]  # Center of image (normalized coordinates)
     class_ids = [0]
 
-    target = dataset._encode_target(bboxes, class_ids, 224, 224)
+    target = dataset._encode_target(bboxes, class_ids)
 
     # Object at (0.5, 0.5) should be in grid cell (3, 3)
     i, j = 3, 3
@@ -134,14 +134,14 @@ def test_multiple_objects_per_image():
     """Test handling multiple objects in single image."""
     dataset = MockYOLODataset(num_samples=1, S=7, B=2, C=3)
 
-    # Create multiple objects
+    # Create multiple objects (normalized coordinates)
     bboxes = [
         [0.2, 0.3, 0.1, 0.1],
         [0.7, 0.8, 0.15, 0.2],
     ]
     class_ids = [0, 1]
 
-    target = dataset._encode_target(bboxes, class_ids, 224, 224)
+    target = dataset._encode_target(bboxes, class_ids)
 
     # Count cells with objects
     cells_with_objects = (target[:, :, 4] > 0).sum().item()
