@@ -6,7 +6,7 @@ import tempfile
 import os
 
 from yolo.inference import YOLOInference
-from yolo.model import YOLOv1
+from yolo.models import YOLOv1
 
 
 @pytest.fixture

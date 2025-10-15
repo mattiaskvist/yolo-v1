@@ -1,4 +1,5 @@
 import torch.nn as nn
+from torchvision.models import resnet50, ResNet50_Weights
 
 
 class YOLOv1(nn.Module):
@@ -84,4 +85,87 @@ class YOLOv1(nn.Module):
         x = self.classifier(x)
         # Reshape to (batch_size, S, S, B*5 + num_classes)
         x = x.view(-1, self.S, self.S, self.B * 5 + self.num_classes)
+        return x
+
+
+class DetectionHead(nn.Module):
+    """Detection head for YOLO with additional conv layers and FC layers."""
+
+    def __init__(self, in_channels, num_classes=20, S=7, B=2):
+        super(DetectionHead, self).__init__()
+        self.num_classes = num_classes
+        self.S = S
+        self.B = B
+
+        # Additional convolutional layers
+        # Input: (batch, in_channels, 14, 14) for ResNet50
+        # After stride=2 conv: (batch, 1024, 7, 7)
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(in_channels, 1024, kernel_size=3, padding=1),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(1024, 1024, kernel_size=3, stride=2, padding=1),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(1024, 1024, kernel_size=3, padding=1),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(1024, 1024, kernel_size=3, padding=1),
+            nn.LeakyReLU(0.1),
+        )
+
+        # Fully connected layers
+        # After conv_layers: spatial size is S x S (7x7)
+        self.fc_layers = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(1024 * S * S, 4096),
+            nn.LeakyReLU(0.1),
+            nn.Dropout(0.5),
+            nn.Linear(4096, S * S * (B * 5 + num_classes)),
+        )
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.fc_layers(x)
+        x = x.view(-1, self.S, self.S, self.B * 5 + self.num_classes)
+        return x
+
+
+class YOLOv1ResNet(nn.Module):
+    """YOLOv1 with ResNet50 backbone for transfer learning."""
+
+    def __init__(self, num_classes=20, S=7, B=2, freeze_backbone=True):
+        """
+        Args:
+            num_classes: Number of object classes
+            S: Grid size (S x S)
+            B: Number of bounding boxes per grid cell
+            freeze_backbone: Whether to freeze ResNet backbone weights
+        """
+        super(YOLOv1ResNet, self).__init__()
+        self.num_classes = num_classes
+        self.S = S
+        self.B = B
+
+        # Load pretrained ResNet50 backbone
+        backbone = resnet50(weights=ResNet50_Weights.DEFAULT)
+
+        # Freeze backbone weights if specified
+        if freeze_backbone:
+            for param in backbone.parameters():
+                param.requires_grad = False
+
+        # Remove the avgpool and fc layers
+        backbone.avgpool = nn.Identity()
+        backbone.fc = nn.Identity()
+
+        self.backbone = backbone
+
+        # Detection head (ResNet50 outputs 2048 channels, 14x14 spatial for 448x448 input)
+        self.detection_head = DetectionHead(2048, num_classes, S, B)
+
+    def forward(self, x):
+        # Extract features from backbone
+        x = self.backbone(x)
+        # Reshape from (batch, 2048, 14, 14) if needed
+        x = x.view(x.size(0), 2048, 14, 14)
+        # Pass through detection head
+        x = self.detection_head(x)
         return x

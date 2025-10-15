@@ -129,13 +129,19 @@ class YOLOInference:
 
 # Example usage
 if __name__ == "__main__":
-    from model import YOLOv1
+    from yolo.models import YOLOv1, YOLOv1ResNet
 
-    model = YOLOv1(num_classes=20)
+    # model = YOLOv1(num_classes=20)
+    model = YOLOv1ResNet(num_classes=20, freeze_backbone=True)
+
     inference = YOLOInference(model)
 
     # Replace 'path/to/image.jpg' with the actual path to your test image
-    detections = inference.predict("path/to/image.jpg")
+    detections = inference.predict(
+        "path/to/image.jpg",
+        conf_threshold=0.5,  # typical confidence threshold
+        nms_threshold=0.4,  # standard nms threshold for object detection
+    )
     print(f"Found {len(detections)} objects")
     for det in detections:
         print(f"Class: {det[0]}, Confidence: {det[1]:.2f}, Box: {det[2:]}")
