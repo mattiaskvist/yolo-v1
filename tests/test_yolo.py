@@ -88,9 +88,6 @@ class TestYOLOInference:
             assert len(det) == 6  # [class_id, conf, x, y, w, h]
             # Confidence can be > 1 since it's conf * class_prob without sigmoid
             assert det[1] >= 0  # confidence should be non-negative
-            # Optionally, check if confidence can exceed 1
-            if det[1] > 1:
-                assert det[1] == pytest.approx(det[1], abs=1e-5)  # allow >1 as per comment
 
     def test_parse_predictions_confidence_threshold(self, inference_engine):
         """Test that confidence threshold filters detections"""
