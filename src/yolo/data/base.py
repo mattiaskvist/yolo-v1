@@ -18,6 +18,12 @@ class BaseYOLODataset(Dataset, ABC):
     must follow. Subclasses should implement dataset-specific loading and
     parsing logic.
 
+    Subclasses must implement:
+        - _load_samples(): Return list of samples with 'image_path' and any
+          fields needed by _parse_annotation()
+        - _load_class_names(): Return list of class name strings
+        - _parse_annotation(): Parse a sample and return normalized bboxes and class IDs
+
     Args:
         root_dir: Root directory containing the dataset
         split: Dataset split ('train', 'val', 'test')
@@ -70,7 +76,8 @@ class BaseYOLODataset(Dataset, ABC):
 
         Each sample should be a dictionary containing at minimum:
         - 'image_path': Path to the image file
-        - 'annotations': List of annotations (bounding boxes and classes)
+        - Any additional dataset-specific fields required by _parse_annotation()
+          (e.g., 'annotation_path' for XML/JSON files, or direct 'bboxes'/'labels')
 
         Returns:
             List of sample dictionaries
