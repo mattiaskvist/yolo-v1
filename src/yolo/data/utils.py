@@ -4,6 +4,7 @@ from typing import List, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
+
 def draw_bboxes(
     image: Image.Image,
     bboxes: List[List[float]],
@@ -30,11 +31,19 @@ def draw_bboxes(
     draw = ImageDraw.Draw(img_copy)
     img_width, img_height = image.size
 
-    # Try to use a better font
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
-    except Exception:
-        font = ImageFont.load_default()
+    # Try to use a better font with cross-platform fallbacks
+    font = ImageFont.load_default()
+    font_names = [
+        "DejaVuSans.ttf",  # Linux
+        "Arial.ttf",  # Windows
+        "Helvetica.ttc",  # macOS (without full path)
+    ]
+    for font_name in font_names:
+        try:
+            font = ImageFont.truetype(font_name, 16)
+            break
+        except (OSError, IOError):
+            continue
 
     for idx, (bbox, class_name) in enumerate(zip(bboxes, class_names)):
         x_center, y_center, box_width, box_height = bbox
