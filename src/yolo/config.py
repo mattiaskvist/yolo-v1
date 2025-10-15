@@ -1,6 +1,6 @@
 """Configuration file for YOLO v1 training and data loading."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Tuple
 
@@ -94,9 +94,9 @@ class TrainingConfig:
 class Config:
     """Main configuration combining all sub-configs."""
 
-    data: DataConfig = DataConfig()
-    model: ModelConfig = ModelConfig()
-    training: TrainingConfig = TrainingConfig()
+    data: DataConfig = field(default_factory=DataConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
 
     # Device
     device: str = "cuda"  # 'cuda' or 'cpu'
