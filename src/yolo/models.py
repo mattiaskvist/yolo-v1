@@ -146,7 +146,8 @@ class YOLOv1ResNet(nn.Module):
 
         # Freeze backbone weights if specified
         if freeze_backbone:
-            backbone.requires_grad_(False)
+            for param in backbone.parameters():
+                param.requires_grad = False
 
         # Remove the avgpool and fc layers
         backbone.avgpool = nn.Identity()
