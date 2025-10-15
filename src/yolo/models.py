@@ -98,6 +98,8 @@ class DetectionHead(nn.Module):
         self.B = B
 
         # Additional convolutional layers
+        # Input: (batch, in_channels, 14, 14) for ResNet50
+        # After stride=2 conv: (batch, 1024, 7, 7)
         self.conv_layers = nn.Sequential(
             nn.Conv2d(in_channels, 1024, kernel_size=3, padding=1),
             nn.LeakyReLU(0.1),
@@ -110,6 +112,7 @@ class DetectionHead(nn.Module):
         )
 
         # Fully connected layers
+        # After conv_layers: spatial size is S x S (7x7)
         self.fc_layers = nn.Sequential(
             nn.Flatten(),
             nn.Linear(1024 * S * S, 4096),
