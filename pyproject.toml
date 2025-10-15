@@ -1,0 +1,7 @@
+[project]
+name = "yolo-v1"
+version = "0.1.0"
+description = "Reimplementation of the YOLO v1 object detection model using PyTorch."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
