@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from torchvision.models import resnet50, ResNet50_Weights
 
@@ -5,12 +6,12 @@ from torchvision.models import resnet50, ResNet50_Weights
 class YOLOv1(nn.Module):
     """YOLOv1 model for object detection."""
 
-    def __init__(self, num_classes=20, S=7, B=2):
+    def __init__(self, num_classes: int = 20, S: int = 7, B: int = 2):
         """
         Args:
-            num_classes: Number of object classes
-            S: Grid size (S x S)
-            B: Number of bounding boxes per grid cell
+            num_classes (int): Number of object classes
+            S (int): Grid size (S x S)
+            B (int): Number of bounding boxes per grid cell
         """
         super(YOLOv1, self).__init__()
         self.num_classes = num_classes
@@ -66,7 +67,9 @@ class YOLOv1(nn.Module):
             nn.Linear(4096, S * S * (B * 5 + num_classes)),
         )
 
-    def _make_conv_block(self, in_channels, mid_channels, out_channels, num_blocks):
+    def _make_conv_block(
+        self, in_channels: int, mid_channels: int, out_channels: int, num_blocks: int
+    ) -> list[nn.Module]:
         layers = []
         for _ in range(num_blocks):
             layers.extend(
@@ -80,7 +83,7 @@ class YOLOv1(nn.Module):
             in_channels = out_channels
         return layers
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.features(x)
         x = self.classifier(x)
         # Reshape to (batch_size, S, S, B*5 + num_classes)
@@ -91,7 +94,9 @@ class YOLOv1(nn.Module):
 class DetectionHead(nn.Module):
     """Detection head for YOLO with additional conv layers and FC layers."""
 
-    def __init__(self, in_channels, num_classes=20, S=7, B=2):
+    def __init__(
+        self, in_channels: int, num_classes: int = 20, S: int = 7, B: int = 2
+    ) -> None:
         super(DetectionHead, self).__init__()
         self.num_classes = num_classes
         self.S = S
@@ -121,7 +126,7 @@ class DetectionHead(nn.Module):
             nn.Linear(4096, S * S * (B * 5 + num_classes)),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv_layers(x)
         x = self.fc_layers(x)
         x = x.view(-1, self.S, self.S, self.B * 5 + self.num_classes)
@@ -131,13 +136,19 @@ class DetectionHead(nn.Module):
 class YOLOv1ResNet(nn.Module):
     """YOLOv1 with ResNet50 backbone for transfer learning."""
 
-    def __init__(self, num_classes=20, S=7, B=2, freeze_backbone=True):
+    def __init__(
+        self,
+        num_classes: int = 20,
+        S: int = 7,
+        B: int = 2,
+        freeze_backbone: bool = True,
+    ):
         """
         Args:
-            num_classes: Number of object classes
-            S: Grid size (S x S)
-            B: Number of bounding boxes per grid cell
-            freeze_backbone: Whether to freeze ResNet backbone weights
+            num_classes (int): Number of object classes
+            S (int): Grid size (S x S)
+            B (int): Number of bounding boxes per grid cell
+            freeze_backbone (bool): Whether to freeze ResNet backbone weights
         """
         super(YOLOv1ResNet, self).__init__()
         self.num_classes = num_classes
@@ -161,7 +172,7 @@ class YOLOv1ResNet(nn.Module):
         # Detection head (ResNet50 outputs 2048 channels, 14x14 spatial for 448x448 input)
         self.detection_head = DetectionHead(2048, num_classes, S, B)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Extract features from backbone
         x = self.backbone(x)
         # Reshape from (batch, 2048, 14, 14) if needed
