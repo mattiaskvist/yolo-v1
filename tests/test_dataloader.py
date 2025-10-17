@@ -13,11 +13,11 @@ from yolo.data.utils import compute_iou, non_max_suppression
 class MockYOLODataset(BaseYOLODataset):
     """Mock dataset for testing base functionality."""
 
-    def __init__(self, num_samples=10, **kwargs):
+    def __init__(self, num_samples: int = 10, **kwargs) -> None:
         self.num_samples = num_samples
         super().__init__(root_dir="/tmp", **kwargs)
 
-    def _load_samples(self):
+    def _load_samples(self) -> list[dict]:
         """Create mock samples."""
         return [
             {
@@ -28,16 +28,16 @@ class MockYOLODataset(BaseYOLODataset):
             for _ in range(self.num_samples)
         ]
 
-    def _load_class_names(self):
+    def _load_class_names(self) -> list[str]:
         """Return mock class names."""
         return ["class_0", "class_1", "class_2"]
 
-    def _parse_annotation(self, sample):
+    def _parse_annotation(self, sample: dict) -> tuple:
         """Return mock annotations."""
         return sample["bbox"], sample["class_id"]
 
 
-def test_base_dataset_initialization():
+def test_base_dataset_initialization() -> None:
     """Test that base dataset initializes correctly."""
     dataset = MockYOLODataset(num_samples=5, S=7, B=2, C=3)
 
@@ -48,7 +48,7 @@ def test_base_dataset_initialization():
     assert len(dataset.class_names) == 3
 
 
-def test_target_encoding():
+def test_target_encoding() -> None:
     """Test that target encoding produces correct shape."""
     dataset = MockYOLODataset(num_samples=1, S=7, B=2, C=20)
 
@@ -69,7 +69,7 @@ def test_target_encoding():
     assert target.shape == (7, 7, 5 * 2 + 20)  # S=7, B=2, C=20
 
 
-def test_compute_iou():
+def test_compute_iou() -> None:
     """Test IoU computation."""
     # Identical boxes
     box1 = [0.5, 0.5, 0.2, 0.2]
@@ -88,7 +88,7 @@ def test_compute_iou():
     assert 0.0 < iou < 1.0
 
 
-def test_non_max_suppression():
+def test_non_max_suppression() -> None:
     """Test NMS removes overlapping boxes."""
     bboxes = [
         [0.5, 0.5, 0.2, 0.2],
@@ -108,7 +108,7 @@ def test_non_max_suppression():
     assert filtered_classes[1] == 1  # Different class kept
 
 
-def test_grid_cell_assignment():
+def test_grid_cell_assignment() -> None:
     """Test that objects are assigned to correct grid cells."""
     dataset = MockYOLODataset(num_samples=1, S=7, B=2, C=3)
 
@@ -130,7 +130,7 @@ def test_grid_cell_assignment():
     assert 0.0 <= target[i, j, 1] <= 1.0  # y relative to cell
 
 
-def test_multiple_objects_per_image():
+def test_multiple_objects_per_image() -> None:
     """Test handling multiple objects in single image."""
     dataset = MockYOLODataset(num_samples=1, S=7, B=2, C=3)
 
