@@ -3,22 +3,21 @@ import torch.nn as nn
 from torchvision.models import resnet50, ResNet50_Weights
 
 
-class YOLOv1(nn.Module):
-    """YOLOv1 model for object detection."""
+class Backbone(nn.Module):
+    """Abstract feature extractor interface."""
 
-    def __init__(self, num_classes: int = 20, S: int = 7, B: int = 2):
-        """
-        Args:
-            num_classes (int): Number of object classes
-            S (int): Grid size (S x S)
-            B (int): Number of bounding boxes per grid cell
-        """
-        super(YOLOv1, self).__init__()
-        self.num_classes = num_classes
-        self.S = S
-        self.B = B
+    def __init__(self):
+        super().__init__()
 
-        # Convolutional layers
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("Subclasses must implement forward method")
+
+
+class YOLOv1Backbone(Backbone):
+    """Original YOLOv1 convolutional backbone."""
+
+    def __init__(self):
+        super().__init__()
         self.features = nn.Sequential(
             # Conv Layer 1
             nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3),
@@ -58,15 +57,6 @@ class YOLOv1(nn.Module):
             nn.LeakyReLU(0.1),
         )
 
-        # Fully connected layers
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(1024 * S * S, 4096),
-            nn.LeakyReLU(0.1),
-            nn.Dropout(0.5),
-            nn.Linear(4096, S * S * (B * 5 + num_classes)),
-        )
-
     def _make_conv_block(
         self, in_channels: int, mid_channels: int, out_channels: int, num_blocks: int
     ) -> list[nn.Module]:
@@ -84,10 +74,121 @@ class YOLOv1(nn.Module):
         return layers
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)
-        x = self.classifier(x)
-        # Reshape to (batch_size, S, S, B*5 + num_classes)
-        x = x.view(-1, self.S, self.S, self.B * 5 + self.num_classes)
+        """
+        Forward pass through the backbone.
+
+        Args:
+            x: Input tensor of shape (batch, 3, H, W)
+
+        Returns:
+            Feature tensor of shape (batch, 1024, 7, 7) for 448x448 input
+        """
+        return self.features(x)
+
+
+class ResNetBackbone(Backbone):
+    """ResNet50 backbone for transfer learning."""
+
+    def __init__(self, pretrained: bool = True, freeze: bool = True):
+        """
+        Args:
+            pretrained: Whether to use pretrained ImageNet weights
+            freeze: Whether to freeze backbone parameters
+        """
+        super().__init__()
+        resnet = resnet50(weights=ResNet50_Weights.DEFAULT if pretrained else None)
+
+        if freeze:
+            for param in resnet.parameters():
+                param.requires_grad = False
+
+        # Extract layers until the last convolutional layer (before avgpool)
+        # This gives us (batch, 2048, 14, 14) for 448x448 input
+        self.extractor = nn.Sequential(*list(resnet.children())[:-2])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through the ResNet backbone.
+
+        Args:
+            x: Input tensor of shape (batch, 3, H, W)
+
+        Returns:
+            Feature tensor of shape (batch, 2048, 14, 14) for 448x448 input
+        """
+        return self.extractor(x)
+
+
+class YOLOv1(nn.Module):
+    """YOLOv1 model for object detection with modular backbone support."""
+
+    def __init__(
+        self,
+        backbone: Backbone | None = None,
+        detection_head: nn.Module | None = None,
+        num_classes: int = 20,
+        S: int = 7,
+        B: int = 2,
+    ):
+        """
+        Args:
+            backbone: Feature extractor backbone. If None, uses YOLOv1Backbone
+            detection_head: Detection head module. If None, creates appropriate head based on backbone
+            num_classes: Number of object classes
+            S: Grid size (S x S)
+            B: Number of bounding boxes per grid cell
+        """
+        super(YOLOv1, self).__init__()
+        self.num_classes = num_classes
+        self.S = S
+        self.B = B
+
+        # Use default YOLOv1 backbone if none provided
+        if backbone is None:
+            backbone = YOLOv1Backbone()
+
+        self.backbone = backbone
+
+        # Create detection head if none provided
+        if detection_head is None:
+            # Determine input channels based on backbone type
+            if isinstance(backbone, YOLOv1Backbone):
+                # YOLOv1 backbone outputs 1024 channels at 7x7
+                # Use simpler head for original backbone
+                detection_head = nn.Sequential(
+                    nn.Flatten(),
+                    nn.Linear(1024 * S * S, 4096),
+                    nn.LeakyReLU(0.1),
+                    nn.Dropout(0.5),
+                    nn.Linear(4096, S * S * (B * 5 + num_classes)),
+                )
+            elif isinstance(backbone, ResNetBackbone):
+                # ResNet backbone outputs 2048 channels at 14x14
+                detection_head = DetectionHead(2048, num_classes, S, B)
+            else:
+                raise ValueError(
+                    "Must provide detection_head for custom backbone types"
+                )
+
+        self.head = detection_head
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through the network.
+
+        Args:
+            x: Input tensor of shape (batch, 3, H, W)
+
+        Returns:
+            Predictions of shape (batch, S, S, B*5 + num_classes)
+        """
+        features = self.backbone(x)
+        x = self.head(features)
+
+        # Reshape to (batch_size, S, S, B*5 + num_classes) if needed
+        if x.dim() == 2:  # Flattened output from simple head
+            x = x.view(-1, self.S, self.S, self.B * 5 + self.num_classes)
+
         return x
 
 
