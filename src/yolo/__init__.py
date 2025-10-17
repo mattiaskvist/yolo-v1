@@ -1,5 +1,6 @@
 """YOLO v1 implementation in PyTorch."""
 
+from .loss import YOLOLoss
 from .models import (
     Backbone,
     DetectionHead,
@@ -15,6 +16,7 @@ __all__ = [
     "Backbone",
     "DetectionHead",
     "ResNetBackbone",
+    "YOLOLoss",
     "YOLOv1",
     "YOLOv1Backbone",
     "YOLOv1ResNet",
