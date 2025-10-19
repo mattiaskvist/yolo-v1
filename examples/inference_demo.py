@@ -54,10 +54,15 @@ def main():
     print()
 
     # Load model
+    # Try to load freeze_backbone from checkpoint, with fallback
+    checkpoint_data = torch.load(latest_checkpoint, map_location=device)
+    freeze_backbone = checkpoint_data.get('freeze_backbone', False)
+    print(f"ℹ️  freeze_backbone from checkpoint: {freeze_backbone}")
+    
     model = load_model(
         checkpoint_path=str(latest_checkpoint),
         num_classes=20,
-        freeze_backbone=False,  # Adjust if needed
+        freeze_backbone=freeze_backbone,
         device=device,
     )
 
