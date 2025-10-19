@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from yolo import YOLOv1, ResNetBackbone
 from yolo.inference import YOLOInference
+import platform
 
 
 # Pascal VOC class names
@@ -109,9 +110,42 @@ def draw_predictions(
     img_draw = image.copy()
     draw = ImageDraw.Draw(img_draw)
 
-    # Try to load a font, fall back to default if not available
+    # Try to load a cross-platform font, fall back to default if not available
     try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
+        system = platform.system()
+        font = None
+
+        if system == "Darwin":
+            candidates = [
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/Library/Fonts/Arial.ttf",
+            ]
+        elif system == "Windows":
+            candidates = [
+                r"C:\Windows\Fonts\arial.ttf",
+                r"C:\Windows\Fonts\segoeui.ttf",
+            ]
+        else:  # Linux / other
+            candidates = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+            ]
+
+        for p in candidates:
+            try:
+                if Path(p).exists():
+                    font = ImageFont.truetype(p, 20)
+                    break
+            except Exception:
+                continue
+
+        # Try a generic name (may work if font is in font path)
+        if font is None:
+            try:
+                font = ImageFont.truetype("DejaVuSans.ttf", 20)
+            except Exception:
+                font = ImageFont.load_default()
     except Exception:
         font = ImageFont.load_default()
 
