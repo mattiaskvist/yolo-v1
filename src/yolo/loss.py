@@ -5,15 +5,6 @@ import torch.nn as nn
 
 
 class YOLOLoss(nn.Module):
-    """
-    YOLO v1 Loss Function.
-
-    Implements the multi-part loss from the original YOLO paper:
-    - Localization loss (x, y, w, h)
-    - Confidence loss (objectness)
-    - Classification loss
-    """
-
     def __init__(
         self,
         S: int = 7,
@@ -22,14 +13,6 @@ class YOLOLoss(nn.Module):
         lambda_coord: float = 5.0,
         lambda_noobj: float = 0.5,
     ):
-        """
-        Args:
-            S: Grid size (S x S)
-            B: Number of bounding boxes per grid cell
-            C: Number of classes
-            lambda_coord: Weight for coordinate loss
-            lambda_noobj: Weight for no-object confidence loss
-        """
         super().__init__()
         self.S = S
         self.B = B
@@ -37,149 +20,133 @@ class YOLOLoss(nn.Module):
         self.lambda_coord = lambda_coord
         self.lambda_noobj = lambda_noobj
 
-    def forward(
-        self, predictions: torch.Tensor, targets: torch.Tensor
-    ) -> tuple[torch.Tensor, dict[str, float]]:
+    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> tuple[torch.Tensor, dict[str, float]]:
         """
-        Calculate YOLO loss.
+        Computes the YOLO v1 loss.
 
         Args:
-            predictions: Model predictions of shape (batch_size, S, S, B*5 + C)
-            targets: Ground truth of shape (batch_size, S, S, B*5 + C)
+            predictions (torch.Tensor): Predicted tensor of shape (N, S, S, B*5 + C), where
+                N is the batch size,
+                S is the grid size,
+                B is the number of bounding boxes per grid cell,
+                C is the number of classes.
+                The last dimension contains, for each box, (x, y, w, h, confidence) and class probabilities.
+            targets (torch.Tensor): Ground truth tensor of the same shape as predictions.
 
         Returns:
-            total_loss: Combined loss value
-            loss_dict: Dictionary with individual loss components
+            tuple: (total_loss, loss_dict)
+                total_loss (torch.Tensor): The total loss value (scalar).
+                loss_dict (dict): Dictionary with individual loss components:
+                    - "total": total loss (float)
+                    - "coord": coordinate loss (float)
+                    - "conf_obj": confidence loss for cells containing objects (float)
+                    - "conf_noobj": confidence loss for cells not containing objects (float)
+                    - "class": classification loss (float)
+
+        Methodology:
+            The loss consists of:
+                - Coordinate loss for bounding box center and size (only for responsible boxes).
+                - Confidence loss for object and no-object cells.
+                - Classification loss for cells containing objects.
+            The responsible bounding box for each object is the one with the highest IoU with the ground truth.
         """
-        batch_size = predictions.shape[0]
+        N = predictions.size(0)
+        device = predictions.device
 
-        # Split predictions and targets into components
-        # Each bounding box has 5 values: x, y, w, h, confidence
-        coord_loss = torch.tensor(0.0, device=predictions.device)
-        conf_loss_obj = torch.tensor(0.0, device=predictions.device)
-        conf_loss_noobj = torch.tensor(0.0, device=predictions.device)
-        class_loss = torch.tensor(0.0, device=predictions.device)
+        # Split predictions and targets
+        pred_boxes = predictions[..., : self.B * 5].view(N, self.S, self.S, self.B, 5)
+        pred_cls = predictions[..., self.B * 5 :]  # (N, S, S, C)
 
-        for b in range(batch_size):
-            pred = predictions[b]  # (S, S, B*5 + C)
-            target = targets[b]  # (S, S, B*5 + C)
+        target_boxes = targets[..., : self.B * 5].view(N, self.S, self.S, self.B, 5)
+        target_cls = targets[..., self.B * 5 :]  # (N, S, S, C)
 
-            for i in range(self.S):
-                for j in range(self.S):
-                    # Check if object exists in this cell
-                    # Target confidence is at index 4 for first box
-                    obj_exists = target[i, j, 4] > 0
+        # Determine which cells contain objects (if any confidence slot > 0)
+        target_conf_mask = targets[..., 4::5] > 0  # (N, S, S, B)
+        obj_mask = target_conf_mask.any(dim=-1)  # (N, S, S)
 
-                    if obj_exists:
-                        # Get target box (use first box in target)
-                        target_box = target[i, j, :5]  # x, y, w, h, conf
+        # For each cell, select the target box that actually contains an object
+        target_box_idx = target_conf_mask.float().argmax(dim=-1)  # (N, S, S)
+        idx = target_box_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, 1, 4)
+        target_box = target_boxes[..., :4].gather(3, idx).squeeze(3)  # (N, S, S, 4)
 
-                        # Find which predicted box is responsible
-                        # Compare IoU of both predicted boxes with target
-                        best_iou = 0
-                        best_box_idx = 0
+        # Compute IoUs between each predicted box and selected target box
+        ious = self.compute_iou(
+            pred_boxes[..., :4], target_box.unsqueeze(3)
+        )  # (N, S, S, B)
+        best_box = ious.argmax(dim=3)  # (N, S, S)
+        best_ious = ious.gather(3, best_box.unsqueeze(-1)).squeeze(-1)  # (N, S, S)
 
-                        for box_idx in range(self.B):
-                            pred_box = pred[i, j, box_idx * 5 : (box_idx + 1) * 5]
-                            iou = self._calculate_iou(pred_box[:4], target_box[:4])
-                            if iou > best_iou:
-                                best_iou = iou
-                                best_box_idx = box_idx
+        # Mask for responsible predicted boxes
+        box_mask = torch.zeros_like(ious, dtype=torch.bool, device=device)
+        box_mask.scatter_(3, best_box.unsqueeze(-1), True)  # (N,S,S,B)
 
-                        # Get the responsible box
-                        pred_box = pred[i, j, best_box_idx * 5 : (best_box_idx + 1) * 5]
+        # Select responsible predicted boxes and their corresponding target boxes
+        responsible_boxes = pred_boxes[box_mask]  # (num_obj, 5)
+        target_boxes_resp = target_box[obj_mask]  # (num_obj, 4)
+        target_conf = best_ious[obj_mask]  # (num_obj,)
 
-                        # Coordinate loss (x, y)
-                        coord_loss += torch.sum((pred_box[:2] - target_box[:2]) ** 2)
-
-                        # Size loss (sqrt of w, h)
-                        pred_wh = torch.sqrt(torch.clamp(pred_box[2:4], min=1e-6))
-                        target_wh = torch.sqrt(torch.clamp(target_box[2:4], min=1e-6))
-                        coord_loss += torch.sum((pred_wh - target_wh) ** 2)
-
-                        # Confidence loss for responsible box
-                        conf_loss_obj += (pred_box[4] - target_box[4]) ** 2
-
-                        # Confidence loss for other boxes in this cell
-                        for box_idx in range(self.B):
-                            if box_idx != best_box_idx:
-                                pred_conf = pred[i, j, box_idx * 5 + 4]
-                                conf_loss_noobj += pred_conf**2
-
-                        # Classification loss
-                        pred_classes = pred[i, j, self.B * 5 :]
-                        target_classes = target[i, j, self.B * 5 :]
-                        class_loss += torch.sum((pred_classes - target_classes) ** 2)
-
-                    else:
-                        # No object in this cell
-                        # Penalize all box confidences
-                        for box_idx in range(self.B):
-                            pred_conf = pred[i, j, box_idx * 5 + 4]
-                            conf_loss_noobj += pred_conf**2
-
-        # Average over batch
-        coord_loss = coord_loss / batch_size
-        conf_loss_obj = conf_loss_obj / batch_size
-        conf_loss_noobj = conf_loss_noobj / batch_size
-        class_loss = class_loss / batch_size
-
-        # Total loss with weights
-        total_loss = (
-            self.lambda_coord * coord_loss
-            + conf_loss_obj
-            + self.lambda_noobj * conf_loss_noobj
-            + class_loss
+        # === Coordinate loss ===
+        xy_loss = torch.sum((responsible_boxes[:, :2] - target_boxes_resp[:, :2]) ** 2)
+        wh_loss = torch.sum(
+            (
+                torch.sqrt(torch.clamp(responsible_boxes[:, 2:4], min=1e-6))
+                - torch.sqrt(torch.clamp(target_boxes_resp[:, 2:4], min=1e-6))
+            )
+            ** 2
         )
+        coord_loss = self.lambda_coord * (xy_loss + wh_loss)
 
-        # Return loss components for logging
+        # === Confidence loss ===
+        pred_conf_obj = responsible_boxes[:, 4]
+        conf_loss_obj = torch.sum((pred_conf_obj - target_conf) ** 2)
+
+        pred_conf_all = pred_boxes[..., 4]
+        conf_loss_noobj = torch.sum(
+            pred_conf_all[~obj_mask.unsqueeze(-1).expand_as(pred_conf_all)] ** 2
+        )
+        conf_loss_noobj = self.lambda_noobj * conf_loss_noobj
+
+        # === Classification loss ===
+        class_loss = torch.sum((pred_cls[obj_mask] - target_cls[obj_mask]) ** 2)
+
+        # === Total ===
+        total_loss = (coord_loss + conf_loss_obj + conf_loss_noobj + class_loss) / N
+
         loss_dict = {
-            "total": total_loss.item(),
-            "coord": coord_loss.item(),
-            "conf_obj": conf_loss_obj.item(),
-            "conf_noobj": conf_loss_noobj.item(),
-            "class": class_loss.item(),
+            "total": total_loss.detach().item(),
+            "coord": (coord_loss / N).detach().item(),
+            "conf_obj": (conf_loss_obj / N).detach().item(),
+            "conf_noobj": (conf_loss_noobj / N).detach().item(),
+            "class": (class_loss / N).detach().item(),
         }
 
         return total_loss, loss_dict
 
-    def _calculate_iou(self, box1: torch.Tensor, box2: torch.Tensor) -> float:
+    @staticmethod
+    def compute_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
         """
-        Calculate IoU between two boxes.
-
-        Args:
-            box1: (x, y, w, h) in grid cell coordinates
-            box2: (x, y, w, h) in grid cell coordinates
-
-        Returns:
-            IoU value
+        boxes1: (N, S, S, B, 4)
+        boxes2: (N, S, S, 1, 4)
         """
-        # Convert to corner coordinates
-        box1_x1 = box1[0] - box1[2] / 2
-        box1_y1 = box1[1] - box1[3] / 2
-        box1_x2 = box1[0] + box1[2] / 2
-        box1_y2 = box1[1] + box1[3] / 2
+        box1_x1 = boxes1[..., 0] - boxes1[..., 2] / 2
+        box1_y1 = boxes1[..., 1] - boxes1[..., 3] / 2
+        box1_x2 = boxes1[..., 0] + boxes1[..., 2] / 2
+        box1_y2 = boxes1[..., 1] + boxes1[..., 3] / 2
 
-        box2_x1 = box2[0] - box2[2] / 2
-        box2_y1 = box2[1] - box2[3] / 2
-        box2_x2 = box2[0] + box2[2] / 2
-        box2_y2 = box2[1] + box2[3] / 2
+        box2_x1 = boxes2[..., 0] - boxes2[..., 2] / 2
+        box2_y1 = boxes2[..., 1] - boxes2[..., 3] / 2
+        box2_x2 = boxes2[..., 0] + boxes2[..., 2] / 2
+        box2_y2 = boxes2[..., 1] + boxes2[..., 3] / 2
 
-        # Intersection area
-        inter_x1 = torch.max(box1_x1, box2_x1)
-        inter_y1 = torch.max(box1_y1, box2_y1)
-        inter_x2 = torch.min(box1_x2, box2_x2)
-        inter_y2 = torch.min(box1_y2, box2_y2)
+        inter_x1 = torch.maximum(box1_x1, box2_x1)
+        inter_y1 = torch.maximum(box1_y1, box2_y1)
+        inter_x2 = torch.minimum(box1_x2, box2_x2)
+        inter_y2 = torch.minimum(box1_y2, box2_y2)
 
         inter_area = torch.clamp(inter_x2 - inter_x1, min=0) * torch.clamp(
             inter_y2 - inter_y1, min=0
         )
-
-        # Union area
-        box1_area = box1[2] * box1[3]
-        box2_area = box2[2] * box2[3]
-        union_area = box1_area + box2_area - inter_area
-
-        # IoU
-        iou = inter_area / (union_area + 1e-6)
-        return iou.item()
+        box1_area = boxes1[..., 2] * boxes1[..., 3]
+        box2_area = boxes2[..., 2] * boxes2[..., 3]
+        union = box1_area + box2_area - inter_area
+        return inter_area / (union + 1e-6)
