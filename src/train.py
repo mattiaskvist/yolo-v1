@@ -9,7 +9,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from yolo import YOLOv1, ResNetBackbone
-from yolo.data import PascalVOCDataset
+from yolo.dataset import VOCDetectionYOLO
 from yolo.loss import YOLOLoss
 
 
@@ -213,8 +213,8 @@ def main():
     parser.add_argument(
         "--data-root",
         type=str,
-        default="../data/VOCdevkit/VOC2007",
-        help="Path to VOC dataset root",
+        default="../data",
+        help="Path to VOC dataset root (where VOCdevkit will be created/exists)",
     )
     parser.add_argument(
         "--batch-size", type=int, default=16, help="Batch size for training"
@@ -295,16 +295,20 @@ def main():
 
     # Create datasets
     print("\nLoading datasets...")
-    train_dataset = PascalVOCDataset(
-        root_dir=Path(args.data_root),
-        split="train",
+    train_dataset = VOCDetectionYOLO(
+        root=args.data_root,
+        year="2007",
+        image_set="train",
+        download=False,
         S=7,
         B=2,
     )
 
-    val_dataset = PascalVOCDataset(
-        root_dir=Path(args.data_root),
-        split="val",
+    val_dataset = VOCDetectionYOLO(
+        root=args.data_root,
+        year="2007",
+        image_set="val",
+        download=False,
         S=7,
         B=2,
     )
