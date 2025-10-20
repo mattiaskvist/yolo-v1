@@ -1,4 +1,4 @@
-"""Quick test script for VOCDetectionYOLO wrapper."""
+"""Tests for VOCDetectionYOLO wrapper."""
 
 import sys
 from pathlib import Path
