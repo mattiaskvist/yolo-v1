@@ -1,14 +1,14 @@
 """Training script for YOLO v1 with ResNet backbone."""
 
 import argparse
-from pathlib import Path
 import time
+from pathlib import Path
 
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from yolo import YOLOv1, ResNetBackbone
+from yolo import ResNetBackbone, YOLOv1
 from yolo.dataset import VOCDetectionYOLO
 from yolo.loss import YOLOLoss
 
@@ -279,7 +279,9 @@ def main():
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
+        default="mps"
+        if torch.backends.mps.is_available()
+        else ("cuda" if torch.cuda.is_available() else "cpu"),
         help="Device to use for training",
     )
 

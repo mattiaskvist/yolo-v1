@@ -20,7 +20,9 @@ class YOLOLoss(nn.Module):
         self.lambda_coord = lambda_coord
         self.lambda_noobj = lambda_noobj
 
-    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> tuple[torch.Tensor, dict[str, float]]:
+    def forward(
+        self, predictions: torch.Tensor, targets: torch.Tensor
+    ) -> tuple[torch.Tensor, dict[str, float]]:
         """
         Computes the YOLO v1 loss.
 
@@ -80,34 +82,49 @@ class YOLOLoss(nn.Module):
         box_mask = torch.zeros_like(ious, dtype=torch.bool, device=device)
         box_mask.scatter_(3, best_box.unsqueeze(-1), True)  # (N,S,S,B)
 
+        # Only select responsible boxes where there are actual objects
+        responsible_mask = box_mask & obj_mask.unsqueeze(-1)  # (N,S,S,B)
+
         # Select responsible predicted boxes and their corresponding target boxes
-        responsible_boxes = pred_boxes[box_mask]  # (num_obj, 5)
+        responsible_boxes = pred_boxes[responsible_mask]  # (num_obj, 5)
         target_boxes_resp = target_box[obj_mask]  # (num_obj, 4)
         target_conf = best_ious[obj_mask]  # (num_obj,)
 
         # === Coordinate loss ===
-        xy_loss = torch.sum((responsible_boxes[:, :2] - target_boxes_resp[:, :2]) ** 2)
-        wh_loss = torch.sum(
-            (
-                torch.sqrt(torch.clamp(responsible_boxes[:, 2:4], min=1e-6))
-                - torch.sqrt(torch.clamp(target_boxes_resp[:, 2:4], min=1e-6))
+        if responsible_boxes.numel() > 0:  # Check if there are any objects
+            xy_loss = torch.sum(
+                (responsible_boxes[:, :2] - target_boxes_resp[:, :2]) ** 2
             )
-            ** 2
-        )
-        coord_loss = self.lambda_coord * (xy_loss + wh_loss)
+            wh_loss = torch.sum(
+                (
+                    torch.sqrt(torch.clamp(responsible_boxes[:, 2:4], min=1e-6))
+                    - torch.sqrt(torch.clamp(target_boxes_resp[:, 2:4], min=1e-6))
+                )
+                ** 2
+            )
+            coord_loss = self.lambda_coord * (xy_loss + wh_loss)
+        else:
+            coord_loss = torch.tensor(0.0, device=device)
 
         # === Confidence loss ===
-        pred_conf_obj = responsible_boxes[:, 4]
-        conf_loss_obj = torch.sum((pred_conf_obj - target_conf) ** 2)
+        if responsible_boxes.numel() > 0:  # Check if there are any objects
+            pred_conf_obj = responsible_boxes[:, 4]
+            conf_loss_obj = torch.sum((pred_conf_obj - target_conf) ** 2)
+        else:
+            conf_loss_obj = torch.tensor(0.0, device=device)
 
-        pred_conf_all = pred_boxes[..., 4]
-        conf_loss_noobj = torch.sum(
-            pred_conf_all[~obj_mask.unsqueeze(-1).expand_as(pred_conf_all)] ** 2
-        )
+        # No-object confidence loss: penalize all boxes that are NOT responsible
+        # This includes boxes in cells without objects AND non-responsible boxes in cells with objects
+        noobj_mask = ~responsible_mask  # All boxes that are NOT responsible
+        pred_conf_noobj = pred_boxes[..., 4][noobj_mask]
+        conf_loss_noobj = torch.sum(pred_conf_noobj**2)
         conf_loss_noobj = self.lambda_noobj * conf_loss_noobj
 
         # === Classification loss ===
-        class_loss = torch.sum((pred_cls[obj_mask] - target_cls[obj_mask]) ** 2)
+        if obj_mask.any():  # Check if there are any objects
+            class_loss = torch.sum((pred_cls[obj_mask] - target_cls[obj_mask]) ** 2)
+        else:
+            class_loss = torch.tensor(0.0, device=device)
 
         # === Total ===
         total_loss = (coord_loss + conf_loss_obj + conf_loss_noobj + class_loss) / N
