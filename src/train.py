@@ -1,15 +1,15 @@
 """Training script for YOLO v1 with ResNet backbone."""
 
 import argparse
-from pathlib import Path
 import time
+from pathlib import Path
 
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from yolo import YOLOv1, ResNetBackbone
-from yolo.data import PascalVOCDataset
+from yolo import ResNetBackbone, YOLOv1
+from yolo.dataset import VOCDetectionYOLO
 from yolo.loss import YOLOLoss
 
 
@@ -213,8 +213,8 @@ def main():
     parser.add_argument(
         "--data-root",
         type=str,
-        default="../data/VOCdevkit/VOC2007",
-        help="Path to VOC dataset root",
+        default="../data",
+        help="Path to VOC dataset root (where VOCdevkit will be created/exists)",
     )
     parser.add_argument(
         "--batch-size", type=int, default=16, help="Batch size for training"
@@ -279,7 +279,9 @@ def main():
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
+        default="mps"
+        if torch.backends.mps.is_available()
+        else ("cuda" if torch.cuda.is_available() else "cpu"),
         help="Device to use for training",
     )
 
@@ -295,16 +297,20 @@ def main():
 
     # Create datasets
     print("\nLoading datasets...")
-    train_dataset = PascalVOCDataset(
-        root_dir=Path(args.data_root),
-        split="train",
+    train_dataset = VOCDetectionYOLO(
+        root=args.data_root,
+        year="2007",
+        image_set="train",
+        download=False,
         S=7,
         B=2,
     )
 
-    val_dataset = PascalVOCDataset(
-        root_dir=Path(args.data_root),
-        split="val",
+    val_dataset = VOCDetectionYOLO(
+        root=args.data_root,
+        year="2007",
+        image_set="val",
+        download=False,
         S=7,
         B=2,
     )

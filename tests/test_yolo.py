@@ -215,18 +215,22 @@ class TestYOLOInference:
 
 class TestTransform:
     def test_transform_output_shape(
-        self, inference_engine: YOLOInference, sample_image: torch.Tensor
+        self, inference_engine: YOLOInference, sample_image: str
     ) -> None:
         """Test that transform produces correct tensor shape"""
-        tensor = inference_engine.transform(sample_image)
+        # Load the image from the path
+        img = Image.open(sample_image).convert("RGB")
+        tensor = inference_engine.transform(img)
 
         assert tensor.shape == (3, 448, 448)
 
     def test_transform_output_range(
-        self, inference_engine: YOLOInference, sample_image: torch.Tensor
+        self, inference_engine: YOLOInference, sample_image: str
     ) -> None:
         """Test that transform normalizes values"""
-        tensor = inference_engine.transform(sample_image)
+        # Load the image from the path
+        img = Image.open(sample_image).convert("RGB")
+        tensor = inference_engine.transform(img)
 
         # After normalization, values should roughly be in [-3, 3]
         assert tensor.min() >= -5
