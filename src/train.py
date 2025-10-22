@@ -9,7 +9,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from yolo import ResNetBackbone, YOLOv1
+from yolo import ResNetBackbone, YOLOv1, evaluate_model
 from yolo.dataset import VOCDetectionYOLO
 from yolo.loss import YOLOLoss
 
@@ -105,8 +105,22 @@ def validate(
     dataloader: DataLoader,
     criterion: YOLOLoss,
     device: str,
+    compute_map: bool = False,
+    num_classes: int = 20,
 ) -> dict[str, float]:
-    """Validate the model."""
+    """Validate the model.
+
+    Args:
+        model: The model to validate
+        dataloader: Validation dataloader
+        criterion: Loss function
+        device: Device to run validation on
+        compute_map: Whether to compute mAP metrics (slower but more informative)
+        num_classes: Number of object classes
+
+    Returns:
+        Dictionary containing validation metrics
+    """
     model.eval()
 
     total_loss = 0
@@ -135,14 +149,32 @@ def validate(
             class_loss += loss_dict["class"]
             num_batches += 1
 
-    # Return average losses
-    return {
+    # Prepare results
+    results = {
         "total": total_loss / num_batches,
         "coord": coord_loss / num_batches,
         "conf_obj": conf_obj_loss / num_batches,
         "conf_noobj": conf_noobj_loss / num_batches,
         "class": class_loss / num_batches,
     }
+
+    # Compute mAP if requested
+    if compute_map:
+        print("\n  Computing mAP metrics...")
+        map_results = evaluate_model(
+            model=model,
+            dataloader=dataloader,
+            device=device,
+            num_classes=num_classes,
+            iou_threshold=0.5,
+            conf_threshold=0.01,
+            nms_threshold=0.4,
+        )
+        results["mAP"] = map_results["mAP"]
+        results["precision"] = map_results["precision"]
+        results["recall"] = map_results["recall"]
+
+    return results
 
 
 def train(
@@ -157,14 +189,34 @@ def train(
     checkpoint_dir: Path,
     save_frequency: int = 5,
     writer: SummaryWriter = None,
+    compute_map: bool = False,
+    map_frequency: int = 5,
+    num_classes: int = 20,
 ) -> dict[str, float]:
     """Main training loop.
+
+    Args:
+        model: Model to train
+        train_loader: Training dataloader
+        val_loader: Validation dataloader
+        criterion: Loss function
+        optimizer: Optimizer
+        scheduler: Learning rate scheduler
+        device: Device to train on
+        num_epochs: Number of training epochs
+        checkpoint_dir: Directory to save checkpoints
+        save_frequency: Save checkpoint every N epochs
+        writer: TensorBoard writer
+        compute_map: Whether to compute mAP during validation
+        map_frequency: Compute mAP every N epochs
+        num_classes: Number of object classes
 
     Returns:
         Dictionary containing final training metrics (best_val_loss, final_train_loss, etc.)
     """
 
     best_val_loss = float("inf")
+    best_map = 0.0
     final_train_loss = None
 
     for epoch in range(1, num_epochs + 1):
@@ -181,13 +233,29 @@ def train(
 
         # Validate
         print("\nValidating...")
-        val_losses = validate(model, val_loader, criterion, device)
+        should_compute_map = compute_map and (
+            epoch % map_frequency == 0 or epoch == num_epochs
+        )
+        val_losses = validate(
+            model,
+            val_loader,
+            criterion,
+            device,
+            compute_map=should_compute_map,
+            num_classes=num_classes,
+        )
 
         print(f"Validation - Epoch {epoch} Average Loss: {val_losses['total']:.4f}")
         print(f"  Coord: {val_losses['coord']:.4f}")
         print(f"  Conf (obj): {val_losses['conf_obj']:.4f}")
         print(f"  Conf (noobj): {val_losses['conf_noobj']:.4f}")
         print(f"  Class: {val_losses['class']:.4f}")
+
+        # Print mAP metrics if computed
+        if "mAP" in val_losses:
+            print(f"  mAP@0.5: {val_losses['mAP']:.4f}")
+            print(f"  Precision: {val_losses['precision']:.4f}")
+            print(f"  Recall: {val_losses['recall']:.4f}")
 
         # Learning rate step
         scheduler.step()
@@ -216,47 +284,73 @@ def train(
 
             writer.add_scalar("epoch/learning_rate", current_lr, epoch)
 
+            # Log mAP metrics if computed
+            if "mAP" in val_losses:
+                writer.add_scalar("epoch/mAP", val_losses["mAP"], epoch)
+                writer.add_scalar("epoch/precision", val_losses["precision"], epoch)
+                writer.add_scalar("epoch/recall", val_losses["recall"], epoch)
+
         # Save checkpoint
         if epoch % save_frequency == 0:
             checkpoint_path = checkpoint_dir / f"yolo_epoch_{epoch}.pth"
-            torch.save(
-                {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict(),
-                    "train_loss": train_losses["total"],
-                    "val_loss": val_losses["total"],
-                },
-                checkpoint_path,
-            )
+            checkpoint_data = {
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "train_loss": train_losses["total"],
+                "val_loss": val_losses["total"],
+            }
+            if "mAP" in val_losses:
+                checkpoint_data["mAP"] = val_losses["mAP"]
+
+            torch.save(checkpoint_data, checkpoint_path)
             print(f"Checkpoint saved to {checkpoint_path}")
 
-        # Save best model
+        # Save best model (by validation loss)
         if val_losses["total"] < best_val_loss:
             best_val_loss = val_losses["total"]
             best_model_path = checkpoint_dir / "yolo_best.pth"
-            torch.save(
-                {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "val_loss": val_losses["total"],
-                },
-                best_model_path,
-            )
+            checkpoint_data = {
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "val_loss": val_losses["total"],
+            }
+            if "mAP" in val_losses:
+                checkpoint_data["mAP"] = val_losses["mAP"]
+
+            torch.save(checkpoint_data, best_model_path)
             print(
                 f"Best model saved to {best_model_path} (val_loss: {best_val_loss:.4f})"
             )
+
+        # Track best mAP
+        if "mAP" in val_losses and val_losses["mAP"] > best_map:
+            best_map = val_losses["mAP"]
+            best_map_path = checkpoint_dir / "yolo_best_map.pth"
+            checkpoint_data = {
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "val_loss": val_losses["total"],
+                "mAP": val_losses["mAP"],
+            }
+            torch.save(checkpoint_data, best_map_path)
+            print(f"Best mAP model saved to {best_map_path} (mAP: {best_map:.4f})")
 
         # Update final training loss
         final_train_loss = train_losses["total"]
 
     # Return final metrics
-    return {
+    results = {
         "best_val_loss": best_val_loss,
         "final_train_loss": final_train_loss,
     }
+    if best_map > 0:
+        results["best_mAP"] = best_map
+
+    return results
 
 
 def main():
@@ -345,6 +439,19 @@ def main():
         "--no-tensorboard",
         action="store_true",
         help="Disable TensorBoard logging",
+    )
+
+    # Evaluation
+    parser.add_argument(
+        "--compute-map",
+        action="store_true",
+        help="Compute mAP metrics during validation (slower but more informative)",
+    )
+    parser.add_argument(
+        "--map-frequency",
+        type=int,
+        default=5,
+        help="Compute mAP every N epochs",
     )
 
     # Device
@@ -505,6 +612,9 @@ def main():
             checkpoint_dir=checkpoint_dir,
             save_frequency=args.save_frequency,
             writer=writer,
+            compute_map=args.compute_map,
+            map_frequency=args.map_frequency,
+            num_classes=args.num_classes,
         )
 
         # Log hyperparameters with final metrics to TensorBoard
@@ -513,6 +623,8 @@ def main():
                 "hparam/best_val_loss": final_metrics["best_val_loss"],
                 "hparam/final_train_loss": final_metrics["final_train_loss"],
             }
+            if "best_mAP" in final_metrics:
+                metric_dict["hparam/best_mAP"] = final_metrics["best_mAP"]
             writer.add_hparams(hparams, metric_dict)
 
     finally:

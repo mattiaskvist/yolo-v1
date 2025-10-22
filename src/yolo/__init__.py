@@ -1,6 +1,7 @@
 """YOLO v1 implementation in PyTorch."""
 
 from .loss import YOLOLoss
+from .metrics import mAPMetric, evaluate_model
 from .models import (
     Backbone,
     DetectionHead,
@@ -20,4 +21,6 @@ __all__ = [
     "YOLOv1",
     "YOLOv1Backbone",
     "YOLOv1ResNet",
+    "mAPMetric",
+    "evaluate_model",
 ]
