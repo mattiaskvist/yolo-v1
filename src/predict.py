@@ -186,7 +186,7 @@ def draw_predictions(
         x2 = int(x_center + box_width / 2)
         y2 = int(y_center + box_height / 2)
 
-        # Ensure x1 < x2 and y1 < y2 (handle negative widths/heights)
+        # Ensure x1 <= x2 and y1 <= y2 (handle negative widths/heights)
         x1, x2 = min(x1, x2), max(x1, x2)
         y1, y2 = min(y1, y2), max(y1, y2)
 
