@@ -7,6 +7,7 @@ from pathlib import Path
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 from yolo import ResNetBackbone, YOLOv1
 from yolo.dataset import VOCDetectionYOLO
@@ -20,6 +21,7 @@ def train_epoch(
     optimizer: optim.Optimizer,
     device: str,
     epoch: int,
+    writer: SummaryWriter = None,
 ) -> dict[str, float]:
     """Train for one epoch."""
     model.train()
@@ -60,7 +62,7 @@ def train_epoch(
         class_loss += loss_dict["class"]
         num_batches += 1
 
-        # Print progress
+        # Print progress and log to tensorboard
         if (batch_idx + 1) % 10 == 0:
             elapsed = time.time() - start_time
             print(
@@ -72,6 +74,20 @@ def train_epoch(
                 f"class: {loss_dict['class']:.4f}) "
                 f"Time: {elapsed:.2f}s"
             )
+
+            # Log batch losses to TensorBoard
+            if writer is not None:
+                global_step = (epoch - 1) * len(dataloader) + batch_idx
+                writer.add_scalar("batch/loss_total", loss_dict["total"], global_step)
+                writer.add_scalar("batch/loss_coord", loss_dict["coord"], global_step)
+                writer.add_scalar(
+                    "batch/loss_conf_obj", loss_dict["conf_obj"], global_step
+                )
+                writer.add_scalar(
+                    "batch/loss_conf_noobj", loss_dict["conf_noobj"], global_step
+                )
+                writer.add_scalar("batch/loss_class", loss_dict["class"], global_step)
+
             start_time = time.time()
 
     # Return average losses
@@ -140,10 +156,16 @@ def train(
     num_epochs: int,
     checkpoint_dir: Path,
     save_frequency: int = 5,
-):
-    """Main training loop."""
+    writer: SummaryWriter = None,
+) -> dict[str, float]:
+    """Main training loop.
+
+    Returns:
+        Dictionary containing final training metrics (best_val_loss, final_train_loss, etc.)
+    """
 
     best_val_loss = float("inf")
+    final_train_loss = None
 
     for epoch in range(1, num_epochs + 1):
         print(f"\n{'=' * 70}")
@@ -152,7 +174,7 @@ def train(
 
         # Train
         train_losses = train_epoch(
-            model, train_loader, criterion, optimizer, device, epoch
+            model, train_loader, criterion, optimizer, device, epoch, writer
         )
 
         print(f"\nTraining - Epoch {epoch} Average Loss: {train_losses['total']:.4f}")
@@ -171,6 +193,28 @@ def train(
         scheduler.step()
         current_lr = optimizer.param_groups[0]["lr"]
         print(f"Learning rate: {current_lr:.6f}")
+
+        # Log epoch metrics to TensorBoard
+        if writer is not None:
+            writer.add_scalar("epoch/train_loss_total", train_losses["total"], epoch)
+            writer.add_scalar("epoch/train_loss_coord", train_losses["coord"], epoch)
+            writer.add_scalar(
+                "epoch/train_loss_conf_obj", train_losses["conf_obj"], epoch
+            )
+            writer.add_scalar(
+                "epoch/train_loss_conf_noobj", train_losses["conf_noobj"], epoch
+            )
+            writer.add_scalar("epoch/train_loss_class", train_losses["class"], epoch)
+
+            writer.add_scalar("epoch/val_loss_total", val_losses["total"], epoch)
+            writer.add_scalar("epoch/val_loss_coord", val_losses["coord"], epoch)
+            writer.add_scalar("epoch/val_loss_conf_obj", val_losses["conf_obj"], epoch)
+            writer.add_scalar(
+                "epoch/val_loss_conf_noobj", val_losses["conf_noobj"], epoch
+            )
+            writer.add_scalar("epoch/val_loss_class", val_losses["class"], epoch)
+
+            writer.add_scalar("epoch/learning_rate", current_lr, epoch)
 
         # Save checkpoint
         if epoch % save_frequency == 0:
@@ -204,6 +248,15 @@ def train(
             print(
                 f"Best model saved to {best_model_path} (val_loss: {best_val_loss:.4f})"
             )
+
+        # Update final training loss
+        final_train_loss = train_losses["total"]
+
+    # Return final metrics
+    return {
+        "best_val_loss": best_val_loss,
+        "final_train_loss": final_train_loss,
+    }
 
 
 def main():
@@ -275,6 +328,25 @@ def main():
         "--resume", type=str, default=None, help="Path to checkpoint to resume from"
     )
 
+    # Experiment tracking
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        default="runs",
+        help="Directory for TensorBoard logs",
+    )
+    parser.add_argument(
+        "--experiment-name",
+        type=str,
+        default=None,
+        help="Name for this experiment (auto-generated if not provided)",
+    )
+    parser.add_argument(
+        "--no-tensorboard",
+        action="store_true",
+        help="Disable TensorBoard logging",
+    )
+
     # Device
     parser.add_argument(
         "--device",
@@ -294,6 +366,25 @@ def main():
     # Set device
     device = args.device
     print(f"Using device: {device}")
+
+    # Set up TensorBoard
+    writer = None
+    log_dir = None
+    if not args.no_tensorboard:
+        from datetime import datetime
+
+        if args.experiment_name:
+            exp_name = args.experiment_name
+        else:
+            # Auto-generate experiment name
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            exp_name = f"yolo_{timestamp}"
+
+        log_dir = Path(args.log_dir) / exp_name
+        writer = SummaryWriter(log_dir=str(log_dir))
+        print("\nTensorBoard logging enabled")
+        print(f"Log directory: {log_dir}")
+        print(f"To view logs, run: tensorboard --logdir={args.log_dir}\n")
 
     # Create datasets
     print("\nLoading datasets...")
@@ -348,6 +439,19 @@ def main():
     print(f"Trainable parameters: {trainable_params:,}")
     print(f"Frozen parameters: {total_params - trainable_params:,}")
 
+    # Prepare hyperparameters for logging (will be logged after training with actual metrics)
+    hparams = {
+        "batch_size": args.batch_size,
+        "learning_rate": args.lr,
+        "weight_decay": args.weight_decay,
+        "lambda_coord": args.lambda_coord,
+        "lambda_noobj": args.lambda_noobj,
+        "freeze_backbone": args.freeze_backbone,
+        "num_epochs": args.epochs,
+        "total_params": total_params,
+        "trainable_params": trainable_params,
+    }
+
     # Create loss function
     criterion = YOLOLoss(
         S=7,
@@ -388,18 +492,35 @@ def main():
     print(f"  Lambda coord: {args.lambda_coord}")
     print(f"  Lambda noobj: {args.lambda_noobj}")
 
-    train(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        criterion=criterion,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        device=device,
-        num_epochs=args.epochs,
-        checkpoint_dir=checkpoint_dir,
-        save_frequency=args.save_frequency,
-    )
+    try:
+        final_metrics = train(
+            model=model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            criterion=criterion,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            device=device,
+            num_epochs=args.epochs,
+            checkpoint_dir=checkpoint_dir,
+            save_frequency=args.save_frequency,
+            writer=writer,
+        )
+
+        # Log hyperparameters with final metrics to TensorBoard
+        if writer is not None:
+            metric_dict = {
+                "hparam/best_val_loss": final_metrics["best_val_loss"],
+                "hparam/final_train_loss": final_metrics["final_train_loss"],
+            }
+            writer.add_hparams(hparams, metric_dict)
+
+    finally:
+        # Close TensorBoard writer
+        if writer is not None:
+            writer.close()
+            if log_dir is not None:
+                print(f"\nTensorBoard logs saved to: {log_dir}")
 
     print("\nTraining completed!")
 
