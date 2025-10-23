@@ -369,6 +369,11 @@ def main():
     parser.add_argument(
         "--num-workers", type=int, default=4, help="Number of data loading workers"
     )
+    parser.add_argument(
+        "--no-augment",
+        action="store_true",
+        help="Disable data augmentation (scaling, translation, HSV adjustments)",
+    )
 
     # Model
     parser.add_argument(
@@ -502,6 +507,7 @@ def main():
         download=False,
         S=7,
         B=2,
+        augment=not args.no_augment,  # Enable augmentation by default
     )
 
     val_dataset = VOCDetectionYOLO(
@@ -511,10 +517,15 @@ def main():
         download=False,
         S=7,
         B=2,
+        augment=False,  # Never augment validation set
     )
 
     print(f"Train dataset: {len(train_dataset)} images")
     print(f"Val dataset: {len(val_dataset)} images")
+    print(f"Data augmentation: {'ENABLED' if not args.no_augment else 'DISABLED'}")
+    if not args.no_augment:
+        print("  - Random scaling and translation (up to 20%)")
+        print("  - HSV color adjustments (exposure & saturation up to 1.5x)")
 
     # Create dataloaders
     train_loader = DataLoader(

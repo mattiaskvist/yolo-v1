@@ -6,6 +6,8 @@ import torch
 from torch.utils.data import Dataset
 from torchvision.datasets import VOCDetection
 from torchvision import transforms
+import torchvision.transforms.v2 as v2
+from torchvision import tv_tensors
 
 
 class VOCDetectionYOLO(Dataset):
@@ -70,11 +72,13 @@ class VOCDetectionYOLO(Dataset):
         B: int = 2,
         transform: transforms.Compose = None,
         target_size: Tuple[int, int] = (448, 448),
+        augment: bool = True,
     ):
         self.S = S
         self.B = B
         self.C = len(self.VOC_CLASSES)
         self.target_size = target_size
+        self.augment = augment and image_set == "train"  # Only augment training set
         self.class_to_idx = {
             cls_name: idx for idx, cls_name in enumerate(self.VOC_CLASSES)
         }
@@ -82,15 +86,21 @@ class VOCDetectionYOLO(Dataset):
 
         # Set up transforms
         if transform is None:
-            self.transform = transforms.Compose(
-                [
-                    transforms.Resize(target_size),
-                    transforms.ToTensor(),
-                    transforms.Normalize(
-                        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                    ),
-                ]
-            )
+            # Use v2 transforms for proper bbox handling during augmentation
+            if self.augment:
+                self.transform = self._get_augmentation_transforms()
+            else:
+                # Simple transforms for validation/test
+                self.transform = v2.Compose(
+                    [
+                        v2.Resize(target_size, antialias=True),
+                        v2.ToImage(),
+                        v2.ToDtype(torch.float32, scale=True),
+                        v2.Normalize(
+                            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                        ),
+                    ]
+                )
         else:
             self.transform = transform
 
@@ -101,6 +111,40 @@ class VOCDetectionYOLO(Dataset):
             image_set=image_set,
             download=download,
             transform=None,  # We'll apply transforms ourselves
+        )
+
+    def _get_augmentation_transforms(self):
+        """
+        Get augmentation transforms as specified in YOLO v1 paper.
+
+        Implements:
+        - Random scaling and translation up to 20% of original image size
+        - Random exposure and saturation adjustment by up to 1.5x in HSV color space
+        """
+        return v2.Compose(
+            [
+                # Random scaling and translation (up to 20%)
+                # RandomResizedCrop does scaling + translation
+                v2.RandomResizedCrop(
+                    size=self.target_size,
+                    scale=(0.8, 1.2),  # Scale between 80% and 120% (20% range)
+                    ratio=(0.8, 1.2),  # Allow some aspect ratio variation
+                    antialias=True,
+                ),
+                # HSV color space adjustments
+                # Brightness: exposure adjustment (affects V channel)
+                # Hue: color tone adjustment
+                # Saturation: up to 1.5x
+                v2.ColorJitter(
+                    brightness=0.5,  # Exposure adjustment (±50% = 1.5x range)
+                    saturation=0.5,  # Saturation adjustment (0.5x to 1.5x range)
+                    hue=0.1,  # Small hue variation
+                ),
+                # Convert to tensor and normalize
+                v2.ToImage(),
+                v2.ToDtype(torch.float32, scale=True),
+                v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
         )
 
     def __len__(self) -> int:
@@ -122,24 +166,88 @@ class VOCDetectionYOLO(Dataset):
         # Get image and annotation from VOCDetection
         image, annotation = self.voc_dataset[idx]
 
-        # Apply transforms to image
-        if self.transform:
-            image = self.transform(image)
+        # If augmentation is enabled, we need to handle bboxes during transforms
+        if self.augment:
+            # Parse bboxes and classes first
+            bboxes_list, class_ids = self._extract_bboxes_from_annotation(annotation)
 
-        # Parse annotation and convert to YOLO format
-        target = self._parse_voc_annotation(annotation)
+            if len(bboxes_list) > 0:
+                # Convert to format expected by v2 transforms
+                # Get original image size
+                orig_width, orig_height = image.size
+
+                # Convert normalized coords back to pixel coords for v2 transforms
+                boxes_pixels = []
+                for bbox in bboxes_list:
+                    x_center, y_center, width, height = bbox
+                    xmin = (x_center - width / 2) * orig_width
+                    ymin = (y_center - height / 2) * orig_height
+                    xmax = (x_center + width / 2) * orig_width
+                    ymax = (y_center + height / 2) * orig_height
+                    boxes_pixels.append([xmin, ymin, xmax, ymax])
+
+                # Create BoundingBoxes object
+                boxes = tv_tensors.BoundingBoxes(
+                    boxes_pixels, format="XYXY", canvas_size=(orig_height, orig_width)
+                )
+
+                # Apply transforms (will transform both image and boxes)
+                transformed = self.transform(
+                    {"image": image, "boxes": boxes, "labels": torch.tensor(class_ids)}
+                )
+                image = transformed["image"]
+                boxes = transformed["boxes"]
+                class_ids = transformed["labels"].tolist()
+
+                # Convert boxes back to normalized center format
+                _, h, w = image.shape
+                bboxes_normalized = []
+                for box in boxes:
+                    xmin, ymin, xmax, ymax = box.tolist()
+                    x_center = ((xmin + xmax) / 2) / w
+                    y_center = ((ymin + ymax) / 2) / h
+                    width = (xmax - xmin) / w
+                    height = (ymax - ymin) / h
+
+                    # Clamp values
+                    x_center = max(0, min(1, x_center))
+                    y_center = max(0, min(1, y_center))
+                    width = max(0, min(1, width))
+                    height = max(0, min(1, height))
+
+                    bboxes_normalized.append([x_center, y_center, width, height])
+
+                # Encode to YOLO format
+                target = self._encode_target(bboxes_normalized, class_ids)
+            else:
+                # No objects, just transform image (pass empty boxes/labels)
+                orig_width, orig_height = image.size
+                empty_boxes = tv_tensors.BoundingBoxes(
+                    [], format="XYXY", canvas_size=(orig_height, orig_width)
+                )
+                transformed = self.transform(
+                    {"image": image, "boxes": empty_boxes, "labels": torch.tensor([])}
+                )
+                image = transformed["image"]
+                target = torch.zeros((self.S, self.S, 5 * self.B + self.C))
+        else:
+            # No augmentation - use old path
+            image = self.transform(image)
+            target = self._parse_voc_annotation(annotation)
 
         return image, target
 
-    def _parse_voc_annotation(self, annotation: dict) -> torch.Tensor:
+    def _extract_bboxes_from_annotation(self, annotation: dict) -> Tuple[list, list]:
         """
-        Parse VOC annotation dictionary and convert to YOLO target format.
+        Extract bounding boxes and class IDs from VOC annotation.
 
         Args:
-            annotation: VOC annotation dictionary from torchvision
+            annotation: VOC annotation dictionary
 
         Returns:
-            Target tensor of shape (S, S, 5*B + C)
+            Tuple of (bboxes, class_ids)
+            - bboxes: List of normalized bounding boxes [x_center, y_center, width, height]
+            - class_ids: List of class IDs
         """
         # Extract image size
         size = annotation["annotation"]["size"]
@@ -184,6 +292,21 @@ class VOCDetectionYOLO(Dataset):
 
             bboxes.append([x_center, y_center, width, height])
             class_ids.append(class_id)
+
+        return bboxes, class_ids
+
+    def _parse_voc_annotation(self, annotation: dict) -> torch.Tensor:
+        """
+        Parse VOC annotation dictionary and convert to YOLO target format.
+
+        Args:
+            annotation: VOC annotation dictionary from torchvision
+
+        Returns:
+            Target tensor of shape (S, S, 5*B + C)
+        """
+        # Extract bboxes and class IDs
+        bboxes, class_ids = self._extract_bboxes_from_annotation(annotation)
 
         # Encode to YOLO target format
         target = self._encode_target(bboxes, class_ids)
