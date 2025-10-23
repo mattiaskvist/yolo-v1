@@ -9,6 +9,7 @@ dependencies = [
     "torchvision>=0.23.0",
     "pillow>=11.3.0",
     "tensorboard>=2.20.0",
+    "matplotlib>=3.10.7",
 ]
 
 [dependency-groups]
