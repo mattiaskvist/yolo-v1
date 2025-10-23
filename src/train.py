@@ -367,7 +367,7 @@ def main():
         "--batch-size", type=int, default=16, help="Batch size for training"
     )
     parser.add_argument(
-        "--num-workers", type=int, default=4, help="Number of data loading workers"
+        "--num-workers", type=int, default=0, help="Number of data loading workers"
     )
     parser.add_argument(
         "--no-augment",
