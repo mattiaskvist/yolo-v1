@@ -90,7 +90,7 @@ class VOCDetectionYOLO(Dataset):
     def download_from_kaggle(
         year: str = "2007",
         verbose: bool = True,
-    ) -> str:
+    ) -> Path | None:
         """
         Download Pascal VOC dataset from Kaggle using kagglehub.
 
@@ -102,7 +102,7 @@ class VOCDetectionYOLO(Dataset):
             verbose: Whether to print progress messages
 
         Returns:
-            Path to the downloaded dataset root (to use as 'root' parameter), or None if failed
+            Path object to the downloaded dataset root (to use as 'root' parameter), or None if failed
 
         Raises:
             ImportError: If kagglehub is not installed
@@ -233,6 +233,8 @@ class VOCDetectionYOLO(Dataset):
         else:
             self.transform = transform
 
+        # Convert root to Path if it's a string
+        root = Path(root)
         # Create the underlying VOCDetection dataset
         self.voc_dataset = VOCDetection(
             root=root / self.split_paths[base_year][image_set],
