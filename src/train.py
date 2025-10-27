@@ -507,7 +507,6 @@ def main():
     # Create datasets
     print("\nLoading datasets...")
     train_dataset = VOCDetectionYOLO(
-        root=args.data_root,
         year="2007",
         image_set="train",
         download=args.download_data,
@@ -517,7 +516,6 @@ def main():
     )
 
     val_dataset = VOCDetectionYOLO(
-        root=args.data_root,
         year="2007",
         image_set="val",
         download=False,  # Don't re-download for validation set

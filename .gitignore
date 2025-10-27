@@ -209,6 +209,6 @@ __marimo__/
 data/
 docs/
 sample_visualization.jpg
-predictions/
+predictions*
 checkpoints/
 runs/

@@ -19,7 +19,6 @@ class VOCDetectionYOLO(Dataset):
     the annotations into the YOLO v1 target format (S x S x (5*B + C)).
 
     Args:
-        root: Root directory where the dataset exists or will be downloaded
         year: Year of the VOC dataset ('2007', '2012', '2007-test', '2012-test')
         image_set: Image set to use ('train', 'val', 'trainval', 'test')
         download: If True, downloads the dataset from Kaggle using kagglehub
@@ -158,7 +157,6 @@ class VOCDetectionYOLO(Dataset):
 
     def __init__(
         self,
-        root: str = "./data",
         year: str = "2007",
         image_set: str = "train",
         download: bool = False,
@@ -166,13 +164,12 @@ class VOCDetectionYOLO(Dataset):
         B: int = 2,
         transform: transforms.Compose = None,
         target_size: Tuple[int, int] = (448, 448),
-        augment: bool = True,
+        augment: bool = True
     ):
         """
         Initialize VOCDetectionYOLO dataset.
 
         Args:
-            root: Root directory where the dataset exists or will be downloaded
             year: Year of the VOC dataset ('2007', '2012', '2007-test', '2012-test')
             image_set: Image set to use ('train', 'val', 'trainval', 'test')
             download: If True, downloads the dataset from Kaggle using kagglehub
