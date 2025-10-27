@@ -1,5 +1,6 @@
 """Wrapper for torchvision's VOCDetection dataset to work with YOLO v1."""
 
+from pathlib import Path
 from typing import Tuple
 
 import torch
@@ -18,27 +19,34 @@ class VOCDetectionYOLO(Dataset):
     the annotations into the YOLO v1 target format (S x S x (5*B + C)).
 
     Args:
-        root: Root directory where the dataset exists or will be downloaded
         year: Year of the VOC dataset ('2007', '2012', '2007-test', '2012-test')
         image_set: Image set to use ('train', 'val', 'trainval', 'test')
-        download: If True, downloads the dataset if not found
+        download: If True, downloads the dataset from Kaggle using kagglehub
         S: Grid size (default: 7)
         B: Number of bounding boxes per grid cell (default: 2)
         transform: Optional image transformations
         target_size: Target image size (width, height)
+        augment: Whether to apply data augmentation (only for training)
 
     Example:
+        >>> # Download from Kaggle (recommended - faster)
+        >>> root = VOCDetectionYOLO.download_from_kaggle(year="2007")
         >>> dataset = VOCDetectionYOLO(
-        ...     root="./data",
+        ...     root=root,
         ...     year="2007",
         ...     image_set="train",
-        ...     download=True,
         ...     S=7,
         ...     B=2
         ... )
-    """
 
-    # Pascal VOC class names (20 classes)
+        >>> # Or use auto-download
+        >>> dataset = VOCDetectionYOLO(
+        ...     year="2007",
+        ...     image_set="train",
+        ...     download=True
+        ... )
+    """  # Pascal VOC class names (20 classes)
+
     VOC_CLASSES = [
         "aeroplane",
         "bicycle",
@@ -62,9 +70,94 @@ class VOCDetectionYOLO(Dataset):
         "tvmonitor",
     ]
 
+    split_paths = {
+        "2007": {
+            "trainval": "VOCtrainval_06-Nov-2007",
+            "test": "VOCtest_06-Nov-2007",
+            "train": "VOCtrainval_06-Nov-2007",
+            "val": "VOCtrainval_06-Nov-2007",
+        },
+        "2012": {
+            "trainval": "VOCtrainval_11-May-2012",
+            "test": "VOCtest_11-May-2012",
+            "train": "VOCtrainval_11-May-2012",
+            "val": "VOCtrainval_11-May-2012",
+        },
+    }
+
+    @staticmethod
+    def download_from_kaggle(
+        year: str = "2007",
+        verbose: bool = True,
+    ) -> Path | None:
+        """
+        Download Pascal VOC dataset from Kaggle using kagglehub.
+
+        This is a convenience method that downloads the dataset from Kaggle,
+        which is often faster and more reliable than the official source.
+
+        Args:
+            year: Year of the VOC dataset ('2007' or '2012')
+            verbose: Whether to print progress messages
+
+        Returns:
+            Path object to the downloaded dataset root (to use as 'root' parameter), or None if failed
+
+        Raises:
+            ImportError: If kagglehub is not installed
+            ValueError: If year is not supported
+
+        Example:
+            >>> root = VOCDetectionYOLO.download_from_kaggle(year="2007")
+            >>> dataset = VOCDetectionYOLO(root=root, year="2007", image_set="train")
+        """
+        # Map year to Kaggle dataset
+        kaggle_datasets = {
+            "2007": "zaraks/pascal-voc-2007",
+            "2012": "huanghanchina/pascal-voc-2012",
+        }
+        if year not in kaggle_datasets:
+            raise ValueError(
+                f"Year '{year}' not supported. Choose from: {list(kaggle_datasets.keys())}"
+            )
+
+        try:
+            import kagglehub
+        except ImportError:
+            raise ImportError(
+                "kagglehub package is required for Kaggle downloads.\n"
+                "Install it with: pip install kagglehub\n"
+                "Or update your dependencies: pip install -e ."
+            )
+
+        if verbose:
+            print("\n" + "=" * 70)
+            print(f"Downloading Pascal VOC {year} dataset from Kaggle...")
+            print(f"Dataset: {kaggle_datasets[year]}")
+            print("=" * 70)
+
+        try:
+            # Download the dataset - returns path to the dataset
+            download_path = kagglehub.dataset_download(kaggle_datasets[year])
+            download_path = Path(download_path)
+
+            if verbose:
+                print(f"\n✓ Dataset downloaded to: {download_path}")
+            return download_path
+
+        except Exception as e:
+            if verbose:
+                print(f"\n✗ Error downloading dataset: {e}")
+                print("\nAlternatively, you can download manually from:")
+                print(
+                    f"  Kaggle: https://www.kaggle.com/datasets/{kaggle_datasets[year]}"
+                )
+                print("=" * 70 + "\n")
+            return None
+
     def __init__(
         self,
-        root: str = "./data",
+        root: str | Path = None,
         year: str = "2007",
         image_set: str = "train",
         download: bool = False,
@@ -74,6 +167,20 @@ class VOCDetectionYOLO(Dataset):
         target_size: Tuple[int, int] = (448, 448),
         augment: bool = True,
     ):
+        """
+        Initialize VOCDetectionYOLO dataset.
+
+        Args:
+            data_root: Root directory of the VOC dataset (used if download=False)
+            year: Year of the VOC dataset ('2007', '2012', '2007-test', '2012-test')
+            image_set: Image set to use ('train', 'val', 'trainval', 'test')
+            download: If True, downloads the dataset from Kaggle using kagglehub
+            S: Grid size (default: 7)
+            B: Number of bounding boxes per grid cell (default: 2)
+            transform: Optional image transformations
+            target_size: Target image size (width, height)
+            augment: Whether to apply data augmentation (only for training)
+        """
         self.S = S
         self.B = B
         self.C = len(self.VOC_CLASSES)
@@ -83,6 +190,27 @@ class VOCDetectionYOLO(Dataset):
             cls_name: idx for idx, cls_name in enumerate(self.VOC_CLASSES)
         }
         self.class_names = self.VOC_CLASSES
+
+        # Extract base year (remove '-test' suffix if present)
+        base_year = year.split("-")[0]
+
+        # Handle Kaggle download if requested
+        if download:
+            try:
+                kaggle_root = self.download_from_kaggle(year=base_year, verbose=True)
+                if kaggle_root:
+                    # Use the Kaggle download path directly
+                    root = kaggle_root
+                    download = False  # Don't use torchvision download
+                else:
+                    raise RuntimeError(
+                        f"Failed to download from Kaggle for year {base_year}"
+                    )
+            except ImportError as e:
+                raise ImportError(
+                    f"Kaggle download failed: {e}\n"
+                    "Install kagglehub with: pip install kagglehub"
+                )
 
         # Set up transforms
         if transform is None:
@@ -104,12 +232,14 @@ class VOCDetectionYOLO(Dataset):
         else:
             self.transform = transform
 
+        # Convert root to Path if it's a string
+        root = Path(root)
         # Create the underlying VOCDetection dataset
         self.voc_dataset = VOCDetection(
-            root=root,
+            root=root / self.split_paths[base_year][image_set],
             year=year,
             image_set=image_set,
-            download=download,
+            download=download,  # This will be False if Kaggle download succeeded
             transform=None,  # We'll apply transforms ourselves
         )
 

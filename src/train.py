@@ -469,6 +469,12 @@ def main():
         help="Device to use for training",
     )
 
+    parser.add_argument(
+        "--download-data",
+        action="store_true",
+        help="Download the VOC dataset from Kaggle (recommended - fast and reliable)",
+    )
+
     args = parser.parse_args()
 
     # Create checkpoint directory
@@ -501,20 +507,18 @@ def main():
     # Create datasets
     print("\nLoading datasets...")
     train_dataset = VOCDetectionYOLO(
-        root=args.data_root,
         year="2007",
         image_set="train",
-        download=False,
+        download=args.download_data,
         S=7,
         B=2,
         augment=not args.no_augment,  # Enable augmentation by default
     )
 
     val_dataset = VOCDetectionYOLO(
-        root=args.data_root,
         year="2007",
         image_set="val",
-        download=False,
+        download=False,  # Don't re-download for validation set
         S=7,
         B=2,
         augment=False,  # Never augment validation set
