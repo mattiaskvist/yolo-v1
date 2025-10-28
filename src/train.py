@@ -4,6 +4,7 @@ import argparse
 import time
 from pathlib import Path
 
+import modal
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -353,7 +354,50 @@ def train(
     return results
 
 
+# Modal setup
+PROJECT_ROOT = Path(__file__).parent.parent
+
+yolo_image = (
+    modal.Image.from_registry("nvidia/cuda:12.8.0-devel-ubuntu22.04", add_python="3.13")
+    .entrypoint([])
+    .uv_sync(uv_project_dir=PROJECT_ROOT)
+    .env({"PYTHONPATH": "/root"})
+    .add_local_dir(PROJECT_ROOT / "src" / "yolo", remote_path="/root/yolo")
+)
+
+kaggle_volume = modal.Volume.from_name("yolo-data", create_if_missing=True)
+KAGGLE_VOLUME_PATH = (  # the path to the volume from within the container
+    Path("/root") / ".cache/kagglehub/datasets/"
+)
+
+model_volume = modal.Volume.from_name("yolo-checkpoints", create_if_missing=True)
+MODEL_DIR = Path("/models")
+
+MINUTES = 60
+HOURS = 12
+TRAIN_GPU_COUNT = 1
+TRAIN_GPU = f"T4:{TRAIN_GPU_COUNT}"
+
+app = modal.App(
+    name="yolo-v1-train",
+    image=yolo_image,
+    volumes={KAGGLE_VOLUME_PATH: kaggle_volume, MODEL_DIR: model_volume},
+)
+
+
+@app.function(
+    gpu=TRAIN_GPU,
+    timeout=60 * MINUTES * HOURS,
+    secrets=[
+        modal.Secret.from_name("KAGGLE_USERNAME", required_keys=["KAGGLE_USERNAME"]),
+        modal.Secret.from_name("KAGGLE_KEY", required_keys=["KAGGLE_KEY"]),
+    ],
+)
 def main():
+    # make sure volumes are synced
+    model_volume.reload()
+    kaggle_volume.reload()
+
     parser = argparse.ArgumentParser(description="Train YOLO v1 with ResNet backbone")
 
     # Data
@@ -364,7 +408,7 @@ def main():
         help="Path to VOC dataset root (where VOCdevkit will be created/exists)",
     )
     parser.add_argument(
-        "--batch-size", type=int, default=16, help="Batch size for training"
+        "--batch-size", type=int, default=8, help="Batch size for training"
     )
     parser.add_argument(
         "--num-workers", type=int, default=0, help="Number of data loading workers"
@@ -389,7 +433,7 @@ def main():
     parser.add_argument(
         "--epochs", type=int, default=135, help="Number of training epochs"
     )
-    parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rate")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate")
     parser.add_argument("--weight-decay", type=float, default=5e-4, help="Weight decay")
     parser.add_argument(
         "--lr-decay-epochs",
@@ -420,7 +464,7 @@ def main():
     parser.add_argument(
         "--save-frequency",
         type=int,
-        default=5,
+        default=10,
         help="Save checkpoint every N epochs",
     )
     parser.add_argument(
@@ -441,9 +485,9 @@ def main():
         help="Name for this experiment (auto-generated if not provided)",
     )
     parser.add_argument(
-        "--no-tensorboard",
+        "--tensorboard",
         action="store_true",
-        help="Disable TensorBoard logging",
+        help="Enable TensorBoard logging",
     )
 
     # Evaluation
@@ -488,7 +532,7 @@ def main():
     # Set up TensorBoard
     writer = None
     log_dir = None
-    if not args.no_tensorboard:
+    if args.tensorboard:
         from datetime import datetime
 
         if args.experiment_name:
@@ -509,7 +553,7 @@ def main():
     train_dataset = VOCDetectionYOLO(
         year="2007",
         image_set="train",
-        download=args.download_data,
+        download=True,
         S=7,
         B=2,
         augment=not args.no_augment,  # Enable augmentation by default
@@ -518,7 +562,7 @@ def main():
     val_dataset = VOCDetectionYOLO(
         year="2007",
         image_set="val",
-        download=False,  # Don't re-download for validation set
+        download=True,  # Don't re-download for validation set
         S=7,
         B=2,
         augment=False,  # Never augment validation set
@@ -550,7 +594,7 @@ def main():
 
     # Create model
     print("\nCreating model...")
-    backbone = ResNetBackbone(pretrained=True, freeze=args.freeze_backbone)
+    backbone = ResNetBackbone(pretrained=True, freeze=True)
     model = YOLOv1(backbone=backbone, num_classes=args.num_classes, S=7, B=2)
     model = model.to(device)
 
