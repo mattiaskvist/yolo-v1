@@ -8,6 +8,7 @@ This is a simple interactive example that demonstrates:
 
 Example usage:
     python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth
+    python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth --images-dir /path/to/images
 """
 
 import sys
@@ -29,6 +30,12 @@ def main():
         type=str,
         default="checkpoints/yolo_best.pth",
         help="Path to model checkpoint (default: checkpoints/yolo_best.pth)",
+    )
+    parser.add_argument(
+        "--images-dir",
+        type=str,
+        default=None,
+        help="Path to directory containing images for inference (default: Kaggle VOC test cache)",
     )
     args = parser.parse_args()
 
@@ -74,31 +81,39 @@ def main():
         device=device,
     )
 
-    # Find test images
+    # Find images
     print("\n" + "=" * 70)
-    print("Looking for test images...")
+    print("Looking for images...")
     print("=" * 70)
 
-    test_images_dir = Path(
-        "~/.cache/kagglehub/datasets/zaraks/pascal-voc-2007/versions/1/VOCtest_06-Nov-2007/VOCdevkit/VOC2007/JPEGImages"
-    ).expanduser()
-    if not test_images_dir.exists():
-        print("⚠️  VOC test images not found at expected location")
-        print(f"   Looked in: {test_images_dir}")
-        print("\nPlease specify an image path manually:")
+    # Determine images directory from CLI arg or default
+    if args.images_dir:
+        images_dir = Path(args.images_dir).expanduser()
+    else:
+        # Default to Kaggle VOC test cache location
+        images_dir = Path(
+            "~/.cache/kagglehub/datasets/zaraks/pascal-voc-2007/versions/1/VOCtest_06-Nov-2007/VOCdevkit/VOC2007/JPEGImages"
+        ).expanduser()
+
+    if not images_dir.exists():
+        print("⚠️  Images directory not found at expected location")
+        print(f"   Looked in: {images_dir}")
+        print("\nPlease specify images directory via CLI argument:")
+        print("  --images-dir /path/to/images")
+        print("\nOr use predict.py for single images:")
         print(
             "  python predict.py --checkpoint checkpoints/your_model.pth --image path/to/image.jpg"
         )
         return
 
-    # Get a few test images
-    test_images = list(test_images_dir.glob("*.jpg"))[:50]
+    # Get images to process
+    images = list(images_dir.glob("*.jpg"))[:50]
 
-    if not test_images:
-        print("⚠️  No JPEG images found in the test directory")
+    if not images:
+        print("⚠️  No JPEG images found in the directory")
         return
 
-    print(f"\nFound {len(test_images)} test images")
+    print(f"\nFound {len(images)} images")
     print()
 
     # Run predictions
@@ -109,10 +124,10 @@ def main():
     print("Running predictions...")
     print("=" * 70)
 
-    for i, img_path in enumerate(test_images, 1):
+    for i, img_path in enumerate(images, 1):
         output_path = output_dir / f"pred_{img_path.name}"
 
-        print(f"\n[{i}/{len(test_images)}]")
+        print(f"\n[{i}/{len(images)}]")
         predict_single_image(
             model=model,
             image_path=str(img_path),
