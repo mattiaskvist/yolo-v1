@@ -486,8 +486,8 @@ def main():
     )
     parser.add_argument(
         "--tensorboard",
-        action="store_false",
-        help="Disable TensorBoard logging",
+        action="store_true",
+        help="Enable TensorBoard logging",
     )
 
     # Evaluation
