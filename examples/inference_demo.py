@@ -9,13 +9,11 @@ This is a simple interactive example that demonstrates:
 Example usage:
     python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth
     python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth --images-dir /path/to/images
-    IMAGES_DIR=/path/to/images python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth
 """
 
 import sys
 from pathlib import Path
 import argparse
-import os
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -37,7 +35,7 @@ def main():
         "--images-dir",
         type=str,
         default=None,
-        help="Path to directory containing images for inference (default: uses IMAGES_DIR env var or Kaggle VOC test cache)",
+        help="Path to directory containing images for inference (default: Kaggle VOC test cache)",
     )
     args = parser.parse_args()
 
@@ -88,11 +86,9 @@ def main():
     print("Looking for images...")
     print("=" * 70)
 
-    # Determine images directory from CLI arg, env var, or default
+    # Determine images directory from CLI arg or default
     if args.images_dir:
         images_dir = Path(args.images_dir).expanduser()
-    elif os.getenv("IMAGES_DIR"):
-        images_dir = Path(os.getenv("IMAGES_DIR")).expanduser()
     else:
         # Default to Kaggle VOC test cache location
         images_dir = Path(
@@ -102,9 +98,8 @@ def main():
     if not images_dir.exists():
         print("⚠️  Images directory not found at expected location")
         print(f"   Looked in: {images_dir}")
-        print("\nPlease specify images directory via:")
-        print("  1. CLI argument: --images-dir /path/to/images")
-        print("  2. Environment variable: IMAGES_DIR=/path/to/images")
+        print("\nPlease specify images directory via CLI argument:")
+        print("  --images-dir /path/to/images")
         print("\nOr use predict.py for single images:")
         print(
             "  python predict.py --checkpoint checkpoints/your_model.pth --image path/to/image.jpg"
