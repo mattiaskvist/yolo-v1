@@ -7,11 +7,12 @@ This is a simple interactive example that demonstrates:
 3. Visualizing results
 
 Example usage:
-    python examples/inference_demo.py
+    python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth
 """
 
 import sys
 from pathlib import Path
+import argparse
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,31 +22,38 @@ import torch
 
 
 def main():
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="YOLO v1 Inference Demo")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="checkpoints/yolo_best.pth",
+        help="Path to model checkpoint (default: checkpoints/yolo_best.pth)",
+    )
+    args = parser.parse_args()
+
+    checkpoint_path = Path(args.checkpoint)
+
     print("=" * 70)
     print("YOLO v1 Inference Demo")
     print("=" * 70)
     print()
 
-    # Check for available checkpoint
-    checkpoint_dir = Path("checkpoints")
-    if not checkpoint_dir.exists():
-        print("⚠️  No checkpoints directory found.")
-        print("\nTo use this demo, you need to train a model first:")
-        print("  python train.py --freeze-backbone --epochs 50")
-        print("\nOr download a pretrained checkpoint and place it in checkpoints/")
+    # Verify checkpoint exists
+    if not checkpoint_path.exists():
+        print(f"❌ Checkpoint not found: {checkpoint_path}")
+        print("\nAvailable checkpoints:")
+        checkpoints_dir = Path("checkpoints")
+        if checkpoints_dir.exists():
+            for ckpt in sorted(checkpoints_dir.glob("*.pth")):
+                print(f"  - {ckpt}")
+        print("\nPlease specify a valid checkpoint:")
+        print(
+            "  python examples/inference_demo.py --checkpoint checkpoints/your_model.pth"
+        )
         return
 
-    # Find latest checkpoint
-    checkpoints = list(checkpoint_dir.glob("*.pth"))
-    if not checkpoints:
-        print("⚠️  No checkpoint files (.pth) found in checkpoints/")
-        print("\nTo use this demo, you need to train a model first:")
-        print("  python train.py --freeze-backbone --epochs 50")
-        return
-
-    # Use the most recent checkpoint
-    latest_checkpoint = max(checkpoints, key=lambda p: p.stat().st_mtime)
-    print(f"📦 Using checkpoint: {latest_checkpoint.name}")
+    print(f"📦 Using checkpoint: {checkpoint_path.name}")
     print()
 
     # Device
@@ -55,12 +63,12 @@ def main():
 
     # Load model
     # Try to load freeze_backbone from checkpoint, with fallback
-    checkpoint_data = torch.load(latest_checkpoint, map_location=device)
-    freeze_backbone = checkpoint_data.get('freeze_backbone', False)
+    checkpoint_data = torch.load(checkpoint_path, map_location=device)
+    freeze_backbone = checkpoint_data.get("freeze_backbone", False)
     print(f"ℹ️  freeze_backbone from checkpoint: {freeze_backbone}")
-    
+
     model = load_model(
-        checkpoint_path=str(latest_checkpoint),
+        checkpoint_path=str(checkpoint_path),
         num_classes=20,
         freeze_backbone=freeze_backbone,
         device=device,
@@ -71,9 +79,12 @@ def main():
     print("Looking for test images...")
     print("=" * 70)
 
-    test_images_dir = Path("data/VOCdevkit/VOC2007/JPEGImages")
+    test_images_dir = Path(
+        "~/.cache/kagglehub/datasets/zaraks/pascal-voc-2007/versions/1/VOCtest_06-Nov-2007/VOCdevkit/VOC2007/JPEGImages"
+    ).expanduser()
     if not test_images_dir.exists():
         print("⚠️  VOC test images not found at expected location")
+        print(f"   Looked in: {test_images_dir}")
         print("\nPlease specify an image path manually:")
         print(
             "  python predict.py --checkpoint checkpoints/your_model.pth --image path/to/image.jpg"
@@ -81,7 +92,7 @@ def main():
         return
 
     # Get a few test images
-    test_images = list(test_images_dir.glob("*.jpg"))[:5]
+    test_images = list(test_images_dir.glob("*.jpg"))[:50]
 
     if not test_images:
         print("⚠️  No JPEG images found in the test directory")
@@ -106,7 +117,7 @@ def main():
             model=model,
             image_path=str(img_path),
             output_path=str(output_path),
-            conf_threshold=0.3,  # Lower threshold to see more detections
+            conf_threshold=0.05,  # Lower threshold to see more detections
             nms_threshold=0.4,
             device=device,
         )
@@ -116,11 +127,9 @@ def main():
     print("=" * 70)
     print(f"\nPredictions saved to: {output_dir}/")
     print("\nTo run inference on your own images:")
-    print(
-        f"  python predict.py --checkpoint {latest_checkpoint} --image your_image.jpg"
-    )
+    print(f"  python predict.py --checkpoint {checkpoint_path} --image your_image.jpg")
     print("\nTo process a directory of images:")
-    print(f"  python predict.py --checkpoint {latest_checkpoint} --image-dir your_dir/")
+    print(f"  python predict.py --checkpoint {checkpoint_path} --image-dir your_dir/")
     print()
 
 
