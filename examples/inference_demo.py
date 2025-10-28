@@ -8,8 +8,8 @@ This is a simple interactive example that demonstrates:
 
 Example usage:
     python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth
-    python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth --test-images-dir /path/to/images
-    VOC_TEST_IMAGES_DIR=/path/to/images python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth
+    python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth --images-dir /path/to/images
+    IMAGES_DIR=/path/to/images python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth
 """
 
 import sys
@@ -34,10 +34,10 @@ def main():
         help="Path to model checkpoint (default: checkpoints/yolo_best.pth)",
     )
     parser.add_argument(
-        "--test-images-dir",
+        "--images-dir",
         type=str,
         default=None,
-        help="Path to directory containing test images (default: uses VOC_TEST_IMAGES_DIR env var or Kaggle cache)",
+        help="Path to directory containing images for inference (default: uses IMAGES_DIR env var or Kaggle VOC test cache)",
     )
     args = parser.parse_args()
 
@@ -83,42 +83,42 @@ def main():
         device=device,
     )
 
-    # Find test images
+    # Find images
     print("\n" + "=" * 70)
-    print("Looking for test images...")
+    print("Looking for images...")
     print("=" * 70)
 
-    # Determine test images directory from CLI arg, env var, or default
-    if args.test_images_dir:
-        test_images_dir = Path(args.test_images_dir).expanduser()
-    elif os.getenv("VOC_TEST_IMAGES_DIR"):
-        test_images_dir = Path(os.getenv("VOC_TEST_IMAGES_DIR")).expanduser()
+    # Determine images directory from CLI arg, env var, or default
+    if args.images_dir:
+        images_dir = Path(args.images_dir).expanduser()
+    elif os.getenv("IMAGES_DIR"):
+        images_dir = Path(os.getenv("IMAGES_DIR")).expanduser()
     else:
-        # Default to Kaggle cache location
-        test_images_dir = Path(
+        # Default to Kaggle VOC test cache location
+        images_dir = Path(
             "~/.cache/kagglehub/datasets/zaraks/pascal-voc-2007/versions/1/VOCtest_06-Nov-2007/VOCdevkit/VOC2007/JPEGImages"
         ).expanduser()
 
-    if not test_images_dir.exists():
-        print("⚠️  VOC test images not found at expected location")
-        print(f"   Looked in: {test_images_dir}")
-        print("\nPlease specify test images directory via:")
-        print("  1. CLI argument: --test-images-dir /path/to/images")
-        print("  2. Environment variable: VOC_TEST_IMAGES_DIR=/path/to/images")
+    if not images_dir.exists():
+        print("⚠️  Images directory not found at expected location")
+        print(f"   Looked in: {images_dir}")
+        print("\nPlease specify images directory via:")
+        print("  1. CLI argument: --images-dir /path/to/images")
+        print("  2. Environment variable: IMAGES_DIR=/path/to/images")
         print("\nOr use predict.py for single images:")
         print(
             "  python predict.py --checkpoint checkpoints/your_model.pth --image path/to/image.jpg"
         )
         return
 
-    # Get a few test images
-    test_images = list(test_images_dir.glob("*.jpg"))[:50]
+    # Get images to process
+    images = list(images_dir.glob("*.jpg"))[:50]
 
-    if not test_images:
-        print("⚠️  No JPEG images found in the test directory")
+    if not images:
+        print("⚠️  No JPEG images found in the directory")
         return
 
-    print(f"\nFound {len(test_images)} test images")
+    print(f"\nFound {len(images)} images")
     print()
 
     # Run predictions
@@ -129,10 +129,10 @@ def main():
     print("Running predictions...")
     print("=" * 70)
 
-    for i, img_path in enumerate(test_images, 1):
+    for i, img_path in enumerate(images, 1):
         output_path = output_dir / f"pred_{img_path.name}"
 
-        print(f"\n[{i}/{len(test_images)}]")
+        print(f"\n[{i}/{len(images)}]")
         predict_single_image(
             model=model,
             image_path=str(img_path),
