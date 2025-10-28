@@ -458,7 +458,7 @@ def main():
     parser.add_argument(
         "--checkpoint-dir",
         type=str,
-        default=MODEL_DIR,
+        default="checkpoints",
         help="Directory to save checkpoints",
     )
     parser.add_argument(
