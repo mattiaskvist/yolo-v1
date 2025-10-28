@@ -8,11 +8,14 @@ This is a simple interactive example that demonstrates:
 
 Example usage:
     python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth
+    python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth --test-images-dir /path/to/images
+    VOC_TEST_IMAGES_DIR=/path/to/images python examples/inference_demo.py --checkpoint checkpoints/yolo_best.pth
 """
 
 import sys
 from pathlib import Path
 import argparse
+import os
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -29,6 +32,12 @@ def main():
         type=str,
         default="checkpoints/yolo_best.pth",
         help="Path to model checkpoint (default: checkpoints/yolo_best.pth)",
+    )
+    parser.add_argument(
+        "--test-images-dir",
+        type=str,
+        default=None,
+        help="Path to directory containing test images (default: uses VOC_TEST_IMAGES_DIR env var or Kaggle cache)",
     )
     args = parser.parse_args()
 
@@ -79,13 +88,24 @@ def main():
     print("Looking for test images...")
     print("=" * 70)
 
-    test_images_dir = Path(
-        "~/.cache/kagglehub/datasets/zaraks/pascal-voc-2007/versions/1/VOCtest_06-Nov-2007/VOCdevkit/VOC2007/JPEGImages"
-    ).expanduser()
+    # Determine test images directory from CLI arg, env var, or default
+    if args.test_images_dir:
+        test_images_dir = Path(args.test_images_dir).expanduser()
+    elif os.getenv("VOC_TEST_IMAGES_DIR"):
+        test_images_dir = Path(os.getenv("VOC_TEST_IMAGES_DIR")).expanduser()
+    else:
+        # Default to Kaggle cache location
+        test_images_dir = Path(
+            "~/.cache/kagglehub/datasets/zaraks/pascal-voc-2007/versions/1/VOCtest_06-Nov-2007/VOCdevkit/VOC2007/JPEGImages"
+        ).expanduser()
+
     if not test_images_dir.exists():
         print("⚠️  VOC test images not found at expected location")
         print(f"   Looked in: {test_images_dir}")
-        print("\nPlease specify an image path manually:")
+        print("\nPlease specify test images directory via:")
+        print("  1. CLI argument: --test-images-dir /path/to/images")
+        print("  2. Environment variable: VOC_TEST_IMAGES_DIR=/path/to/images")
+        print("\nOr use predict.py for single images:")
         print(
             "  python predict.py --checkpoint checkpoints/your_model.pth --image path/to/image.jpg"
         )
