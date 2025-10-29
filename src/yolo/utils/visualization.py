@@ -6,6 +6,8 @@ import platform
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+from matplotlib import pyplot as plt
+import torch
 
 VOC_CLASSES = [
     "aeroplane",
@@ -29,6 +31,7 @@ VOC_CLASSES = [
     "train",
     "tvmonitor",
 ]
+
 
 def draw_predictions(
     image: Image.Image,
@@ -175,3 +178,118 @@ def _load_font(size: int = 20) -> ImageFont.ImageFont:
         font = ImageFont.load_default()
 
     return font
+
+
+def visualize_objectness_grid(
+    image: Image.Image,
+    predictions: torch.Tensor,
+    B: int = 2,
+    img_size: int = 448,
+):
+    """
+    Visualize the objectness score grid for a YOLO model.
+
+    Args:
+        predictions: Tensor of shape (B, S*S, 5+C) containing the model predictions
+        grid_size: Size of the grid (S)
+        img_size: Size of the input image (width/height)
+
+    Returns:
+        None
+    """
+    # Extract objectness scores
+    # Ensure predictions is 3D: [S, S, B*5 + num_classes]
+    if predictions.dim() == 4:
+        predictions = predictions.squeeze(0)
+
+    # Extract confidence scores for each bounding box
+    # Each cell has B boxes, each with format [x, y, w, h, confidence]
+    conf_scores = []
+    for b in range(B):
+        conf_idx = b * 5 + 4  # Confidence is at index 4, 9, 14, etc.
+        conf_scores.append(predictions[:, :, conf_idx])
+
+    # Stack and take maximum confidence across all boxes
+    conf_tensor = torch.stack(conf_scores, dim=0)  # [B, S, S]
+    max_conf = torch.max(conf_tensor, dim=0)[0].cpu().numpy()  # [S, S]
+
+    # Create visualization
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+    # Original image
+    axes[0].imshow(image)
+    axes[0].set_title("Original Image")
+    axes[0].axis("off")
+
+    # Heatmap
+    im = axes[1].imshow(max_conf, cmap="hot", interpolation="nearest")
+    axes[1].set_title("Objectness Heatmap")
+    axes[1].set_xlabel("Grid X")
+    axes[1].set_ylabel("Grid Y")
+    plt.colorbar(im, ax=axes[1])
+
+    # Overlay on image
+    image_resized = image.resize((img_size, img_size))
+    axes[2].imshow(image_resized, alpha=0.6)
+    im2 = axes[2].imshow(
+        max_conf,
+        cmap="hot",
+        alpha=0.4,
+        extent=[0, img_size, img_size, 0],
+        interpolation="bilinear",
+    )
+    axes[2].set_title("Objectness Overlay")
+    axes[2].axis("off")
+    plt.colorbar(im2, ax=axes[2])
+
+    plt.tight_layout()
+    plt.show()
+
+    return max_conf
+
+
+def draw_objectness_grid_on_image(predictions, image, S=7, B=2):
+    """
+    Draw grid with objectness scores as text on the image.
+    """
+    # Ensure predictions is 3D: [S, S, B*5 + num_classes]
+    if predictions.dim() == 4:
+        predictions = predictions.squeeze(0)
+
+    # Extract confidence scores for each bounding box
+    # Each cell has B boxes, each with format [x, y, w, h, confidence]
+    conf_scores = []
+    for b in range(B):
+        conf_idx = b * 5 + 4  # Confidence is at index 4, 9, 14, etc.
+        conf_scores.append(predictions[:, :, conf_idx])
+
+    # Stack and take maximum confidence across all boxes
+    conf_tensor = torch.stack(conf_scores, dim=0)  # [B, S, S]
+    max_conf = torch.max(conf_tensor, dim=0)[0].cpu().numpy()  # [S, S]
+
+    # Resize image to 448x448
+    img_draw = image.resize((448, 448))
+    draw = ImageDraw.Draw(img_draw)
+
+    cell_size = 448 // S
+
+    # Draw grid and scores
+    for i in range(S):
+        for j in range(S):
+            x = j * cell_size
+            y = i * cell_size
+
+            # Draw grid cell
+            draw.rectangle(
+                [x, y, x + cell_size, y + cell_size], outline="white", width=1
+            )
+
+            # Draw confidence score
+            conf = max_conf[i, j]
+            text = f"{conf:.2f}"
+
+            # Color code text based on confidence
+            color = "red" if conf > 0.5 else "yellow" if conf > 0.2 else "white"
+            draw.text((x + 5, y + 5), text, fill=color)
+
+    return img_draw

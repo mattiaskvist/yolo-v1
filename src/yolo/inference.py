@@ -28,6 +28,16 @@ class YOLOInference:
                 ),
             ]
         )
+    
+    def _load_image(self, image_path: str) -> Image.Image:
+        """Load an image from the given path."""
+        image = Image.open(image_path).convert("RGB")
+        return image
+    
+    def _preprocess_image(self, image: Image.Image) -> torch.Tensor:
+        """Preprocess the image for model input."""
+        img_tensor = self.transform(image).unsqueeze(0).to(self.device)
+        return img_tensor
 
     def predict(
         self, image_path: str, conf_threshold: float = 0.5, nms_threshold: float = 0.4
@@ -41,8 +51,8 @@ class YOLOInference:
             List of detections: [(class_id, confidence, x, y, w, h), ...]
         """
         # Load and preprocess image
-        image = Image.open(image_path).convert("RGB")
-        img_tensor = self.transform(image).unsqueeze(0).to(self.device)
+        image = self._load_image(image_path)
+        img_tensor = self._preprocess_image(image)
 
         # Forward pass
         with torch.no_grad():
