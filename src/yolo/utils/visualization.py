@@ -179,6 +179,7 @@ def _load_font(size: int = 20) -> ImageFont.ImageFont:
 
     return font
 
+
 def extract_objectness_scores(
     predictions: torch.Tensor,
     S: int = 7,
@@ -186,30 +187,30 @@ def extract_objectness_scores(
 ) -> torch.Tensor:
     """
     Extract maximum objectness/confidence scores from YOLO predictions.
-    
+
     Args:
         predictions: Tensor of shape (batch, S, S, B*5 + num_classes) or (S, S, B*5 + num_classes)
         S: Grid size (default 7 for YOLOv1)
         B: Number of bounding boxes per cell (default 2)
-        
+
     Returns:
         Tensor of shape (S, S) containing maximum confidence score for each grid cell
     """
     # Ensure predictions is 3D: [S, S, B*5 + num_classes]
     if predictions.dim() == 4:
         predictions = predictions.squeeze(0)
-    
+
     # Extract confidence scores for each bounding box
     # Each cell has B boxes, each with format [x, y, w, h, confidence]
     conf_scores = []
     for b in range(B):
         conf_idx = b * 5 + 4  # Confidence is at index 4, 9, 14, etc.
         conf_scores.append(predictions[:, :, conf_idx])
-    
+
     # Stack and take maximum confidence across all boxes
     conf_tensor = torch.stack(conf_scores, dim=0)  # [B, S, S]
     max_conf = torch.max(conf_tensor, dim=0)[0]  # [S, S]
-    
+
     return max_conf
 
 
@@ -218,9 +219,8 @@ def visualize_objectness_grid(
     predictions: torch.Tensor,
     B: int = 2,
     img_size: int = 448,
-):
-    """
-    Visualize the objectness score grid for a YOLO model.
+) -> torch.Tensor:
+    """Visualize the objectness score grid for a YOLO model.
 
     Args:
         predictions: Tensor of shape (B, S*S, 5+C) containing the model predictions
@@ -232,7 +232,11 @@ def visualize_objectness_grid(
     """
 
     # Extract maximum objectness scores
-    max_conf = extract_objectness_scores(predictions, S=predictions.shape[1], B=B).cpu().numpy()
+    max_conf = (
+        extract_objectness_scores(predictions, S=predictions.shape[1], B=B)
+        .cpu()
+        .numpy()
+    )
 
     # Create visualization
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
@@ -269,18 +273,28 @@ def visualize_objectness_grid(
     return max_conf
 
 
-def draw_objectness_grid_on_image(predictions, image, S=7, B=2):
-    """
-    Draw grid with objectness scores as text on the image.
+def draw_objectness_grid_on_image(
+    predictions, image, S=7, B=2, img_size=448
+) -> Image.Image:
+    """Draw grid with objectness scores as text on the image.
+
+    Args:
+        predictions: Tensor of shape (S, S, B*5 + num_classes)
+        image: PIL Image
+        S: Grid size (default 7 for YOLOv1)
+        B: Number of bounding boxes per cell (default 2)
+        img_size: Size to resize image for drawing grid (default 448)
+    Returns:
+        PIL Image with grid and objectness scores drawn on it.
     """
     # Extract maximum objectness scores
     max_conf = extract_objectness_scores(predictions, S=S, B=B).cpu().numpy()
 
-    # Resize image to 448x448
-    img_draw = image.resize((448, 448))
+    # Resize image to img_size x img_size
+    img_draw = image.resize((img_size, img_size))
     draw = ImageDraw.Draw(img_draw)
 
-    cell_size = 448 // S
+    cell_size = img_size // S
 
     # Draw grid and scores
     for i in range(S):
