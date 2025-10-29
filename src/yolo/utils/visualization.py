@@ -179,6 +179,39 @@ def _load_font(size: int = 20) -> ImageFont.ImageFont:
 
     return font
 
+def extract_objectness_scores(
+    predictions: torch.Tensor,
+    S: int = 7,
+    B: int = 2,
+) -> torch.Tensor:
+    """
+    Extract maximum objectness/confidence scores from YOLO predictions.
+    
+    Args:
+        predictions: Tensor of shape (batch, S, S, B*5 + num_classes) or (S, S, B*5 + num_classes)
+        S: Grid size (default 7 for YOLOv1)
+        B: Number of bounding boxes per cell (default 2)
+        
+    Returns:
+        Tensor of shape (S, S) containing maximum confidence score for each grid cell
+    """
+    # Ensure predictions is 3D: [S, S, B*5 + num_classes]
+    if predictions.dim() == 4:
+        predictions = predictions.squeeze(0)
+    
+    # Extract confidence scores for each bounding box
+    # Each cell has B boxes, each with format [x, y, w, h, confidence]
+    conf_scores = []
+    for b in range(B):
+        conf_idx = b * 5 + 4  # Confidence is at index 4, 9, 14, etc.
+        conf_scores.append(predictions[:, :, conf_idx])
+    
+    # Stack and take maximum confidence across all boxes
+    conf_tensor = torch.stack(conf_scores, dim=0)  # [B, S, S]
+    max_conf = torch.max(conf_tensor, dim=0)[0]  # [S, S]
+    
+    return max_conf
+
 
 def visualize_objectness_grid(
     image: Image.Image,
@@ -197,21 +230,9 @@ def visualize_objectness_grid(
     Returns:
         None
     """
-    # Extract objectness scores
-    # Ensure predictions is 3D: [S, S, B*5 + num_classes]
-    if predictions.dim() == 4:
-        predictions = predictions.squeeze(0)
 
-    # Extract confidence scores for each bounding box
-    # Each cell has B boxes, each with format [x, y, w, h, confidence]
-    conf_scores = []
-    for b in range(B):
-        conf_idx = b * 5 + 4  # Confidence is at index 4, 9, 14, etc.
-        conf_scores.append(predictions[:, :, conf_idx])
-
-    # Stack and take maximum confidence across all boxes
-    conf_tensor = torch.stack(conf_scores, dim=0)  # [B, S, S]
-    max_conf = torch.max(conf_tensor, dim=0)[0].cpu().numpy()  # [S, S]
+    # Extract maximum objectness scores
+    max_conf = extract_objectness_scores(predictions, S=predictions.shape[1], B=B).cpu().numpy()
 
     # Create visualization
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
@@ -252,20 +273,8 @@ def draw_objectness_grid_on_image(predictions, image, S=7, B=2):
     """
     Draw grid with objectness scores as text on the image.
     """
-    # Ensure predictions is 3D: [S, S, B*5 + num_classes]
-    if predictions.dim() == 4:
-        predictions = predictions.squeeze(0)
-
-    # Extract confidence scores for each bounding box
-    # Each cell has B boxes, each with format [x, y, w, h, confidence]
-    conf_scores = []
-    for b in range(B):
-        conf_idx = b * 5 + 4  # Confidence is at index 4, 9, 14, etc.
-        conf_scores.append(predictions[:, :, conf_idx])
-
-    # Stack and take maximum confidence across all boxes
-    conf_tensor = torch.stack(conf_scores, dim=0)  # [B, S, S]
-    max_conf = torch.max(conf_tensor, dim=0)[0].cpu().numpy()  # [S, S]
+    # Extract maximum objectness scores
+    max_conf = extract_objectness_scores(predictions, S=S, B=B).cpu().numpy()
 
     # Resize image to 448x448
     img_draw = image.resize((448, 448))
