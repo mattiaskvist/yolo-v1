@@ -152,7 +152,7 @@ def example_manual_metric_calculation():
     print("\nComputing final metrics...")
     results = metric.compute()
 
-    print(f"\nFinal Results:")
+    print("\nFinal Results:")
     print(f"  mAP: {results['mAP']:.4f}")
     print(f"  Precision: {results['precision']:.4f}")
     print(f"  Recall: {results['recall']:.4f}")

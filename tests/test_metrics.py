@@ -4,7 +4,7 @@ Tests for mAP metrics implementation.
 
 import torch
 import pytest
-from src.yolo.metrics import mAPMetric, evaluate_model
+from src.yolo.metrics import mAPMetric
 
 
 class TestMapMetric:
