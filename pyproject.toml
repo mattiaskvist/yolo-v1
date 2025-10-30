@@ -12,6 +12,7 @@ dependencies = [
     "matplotlib>=3.10.7",
     "kagglehub>=0.3.13",
     "modal>=1.2.1",
+    "torchview>=0.2.7",
 ]
 
 [dependency-groups]

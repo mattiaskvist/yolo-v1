@@ -33,7 +33,7 @@ VOC_CLASSES = [
 ]
 
 
-def draw_predictions(
+def draw_detections(
     image: Image.Image,
     detections: list,
     class_names: list[str],

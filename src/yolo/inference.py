@@ -13,11 +13,15 @@ class YOLOInference:
     def __init__(
         self,
         model: nn.Module,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str = "mps"
+        if torch.backends.mps.is_available()
+        else "cuda"
+        if torch.cuda.is_available()
+        else "cpu",
     ) -> None:
-        self.model = model.to(device)
-        self.model.eval()
         self.device = device
+        self.model = model.to(self.device)
+        self.model.eval()
 
         self.transform = transforms.Compose(
             [
@@ -28,12 +32,13 @@ class YOLOInference:
                 ),
             ]
         )
-    
-    def _load_image(self, image_path: str) -> Image.Image:
+
+    @staticmethod
+    def _load_image(image_path: str) -> Image.Image:
         """Load an image from the given path."""
         image = Image.open(image_path).convert("RGB")
         return image
-    
+
     def _preprocess_image(self, image: Image.Image) -> torch.Tensor:
         """Preprocess the image for model input."""
         img_tensor = self.transform(image).unsqueeze(0).to(self.device)

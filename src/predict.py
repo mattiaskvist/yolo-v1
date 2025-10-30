@@ -17,7 +17,7 @@ from PIL import Image
 
 from yolo import YOLOv1, ResNetBackbone
 from yolo.inference import YOLOInference
-from yolo.utils.visualization import draw_predictions, VOC_CLASSES
+from yolo.utils.visualization import draw_detections, VOC_CLASSES
 
 
 def load_model(
@@ -61,6 +61,7 @@ def load_model(
     print("  Model loaded successfully!")
 
     return model
+
 
 def predict_single_image(
     model: YOLOv1,
@@ -106,9 +107,7 @@ def predict_single_image(
     # Visualize if requested
     if output_path or len(detections) > 0:
         image = Image.open(image_path).convert("RGB")
-        img_with_boxes = draw_predictions(
-            image, detections, class_names, conf_threshold
-        )
+        img_with_boxes = draw_detections(image, detections, class_names, conf_threshold)
 
         if output_path:
             img_with_boxes.save(output_path)
