@@ -13,36 +13,11 @@ from pathlib import Path
 from typing import Optional
 
 import torch
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 from yolo import YOLOv1, ResNetBackbone
 from yolo.inference import YOLOInference
-import platform
-
-
-# Pascal VOC class names
-VOC_CLASSES = [
-    "aeroplane",
-    "bicycle",
-    "bird",
-    "boat",
-    "bottle",
-    "bus",
-    "car",
-    "cat",
-    "chair",
-    "cow",
-    "diningtable",
-    "dog",
-    "horse",
-    "motorbike",
-    "person",
-    "pottedplant",
-    "sheep",
-    "sofa",
-    "train",
-    "tvmonitor",
-]
+from yolo.utils.visualization import draw_detections, VOC_CLASSES
 
 
 def load_model(
@@ -86,135 +61,6 @@ def load_model(
     print("  Model loaded successfully!")
 
     return model
-
-
-def draw_predictions(
-    image: Image.Image,
-    detections: list,
-    class_names: list[str],
-    conf_threshold: float = 0.5,
-) -> Image.Image:
-    """
-    Draw bounding boxes and labels on image.
-
-    Args:
-        image: PIL Image
-        detections: List of detections [(class_id, conf, x, y, w, h), ...]
-        class_names: List of class names
-        conf_threshold: Only draw boxes with confidence above this
-
-    Returns:
-        Image with drawn boxes
-    """
-    # Create a copy to draw on
-    img_draw = image.copy()
-    draw = ImageDraw.Draw(img_draw)
-
-    # Try to load a cross-platform font, fall back to default if not available
-    try:
-        system = platform.system()
-        font = None
-
-        if system == "Darwin":
-            candidates = [
-                "/System/Library/Fonts/Helvetica.ttc",
-                "/Library/Fonts/Arial.ttf",
-            ]
-        elif system == "Windows":
-            candidates = [
-                r"C:\Windows\Fonts\arial.ttf",
-                r"C:\Windows\Fonts\segoeui.ttf",
-            ]
-        else:  # Linux / other
-            candidates = [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-                "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-            ]
-
-        for p in candidates:
-            try:
-                if Path(p).exists():
-                    font = ImageFont.truetype(p, 20)
-                    break
-            except Exception:
-                continue
-
-        # Try a generic name (may work if font is in font path)
-        if font is None:
-            try:
-                font = ImageFont.truetype("DejaVuSans.ttf", 20)
-            except Exception:
-                font = ImageFont.load_default()
-    except Exception:
-        font = ImageFont.load_default()
-
-    # Image dimensions
-    img_width, img_height = image.size
-
-    # Colors for different classes (simple rotation through some colors)
-    colors = [
-        "red",
-        "green",
-        "blue",
-        "yellow",
-        "magenta",
-        "cyan",
-        "orange",
-        "purple",
-        "pink",
-        "lime",
-    ]
-
-    # Draw each detection
-    for det in detections:
-        class_id, conf, x, y, w, h = det
-
-        # Skip low confidence detections
-        if conf < conf_threshold:
-            continue
-
-        # Convert from normalized coordinates to pixel coordinates
-        x_center = x * img_width
-        y_center = y * img_height
-        box_width = w * img_width
-        box_height = h * img_height
-
-        # Convert to corner coordinates
-        x1 = int(x_center - box_width / 2)
-        y1 = int(y_center - box_height / 2)
-        x2 = int(x_center + box_width / 2)
-        y2 = int(y_center + box_height / 2)
-
-        # Ensure x1 <= x2 and y1 <= y2 (handle negative widths/heights)
-        x1, x2 = min(x1, x2), max(x1, x2)
-        y1, y2 = min(y1, y2), max(y1, y2)
-
-        # Clamp coordinates to image bounds
-        x1 = max(0, min(x1, img_width - 1))
-        y1 = max(0, min(y1, img_height - 1))
-        x2 = max(0, min(x2, img_width - 1))
-        y2 = max(0, min(y2, img_height - 1))
-
-        # Skip if box is too small or invalid
-        if x2 - x1 < 2 or y2 - y1 < 2:
-            continue
-
-        # Choose color based on class
-        color = colors[class_id % len(colors)]
-
-        # Draw box
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
-
-        # Draw label
-        label = f"{class_names[class_id]}: {conf:.2f}"
-
-        # Get text bounding box for background
-        bbox = draw.textbbox((x1, y1 - 25), label, font=font)
-        draw.rectangle(bbox, fill=color)
-        draw.text((x1, y1 - 25), label, fill="white", font=font)
-
-    return img_draw
 
 
 def predict_single_image(
@@ -261,9 +107,7 @@ def predict_single_image(
     # Visualize if requested
     if output_path or len(detections) > 0:
         image = Image.open(image_path).convert("RGB")
-        img_with_boxes = draw_predictions(
-            image, detections, class_names, conf_threshold
-        )
+        img_with_boxes = draw_detections(image, detections, class_names, conf_threshold)
 
         if output_path:
             img_with_boxes.save(output_path)

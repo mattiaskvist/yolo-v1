@@ -1,7 +1,7 @@
 import torch
-from torchvision import transforms
-from PIL import Image
 import torch.nn as nn
+from PIL import Image
+from torchvision import transforms
 
 # Small epsilon value to avoid division by zero in IoU calculation
 EPSILON = 1e-6
@@ -13,11 +13,15 @@ class YOLOInference:
     def __init__(
         self,
         model: nn.Module,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str = "mps"
+        if torch.backends.mps.is_available()
+        else "cuda"
+        if torch.cuda.is_available()
+        else "cpu",
     ) -> None:
-        self.model = model.to(device)
-        self.model.eval()
         self.device = device
+        self.model = model.to(self.device)
+        self.model.eval()
 
         self.transform = transforms.Compose(
             [
@@ -28,6 +32,16 @@ class YOLOInference:
                 ),
             ]
         )
+
+    def load_image(self, image_path: str) -> Image.Image:
+        """Load an image from the given path."""
+        image = Image.open(image_path).convert("RGB")
+        return image
+
+    def preprocess_image(self, image: Image.Image) -> torch.Tensor:
+        """Preprocess the image for model input."""
+        img_tensor = self.transform(image).unsqueeze(0).to(self.device)
+        return img_tensor
 
     def predict(
         self, image_path: str, conf_threshold: float = 0.5, nms_threshold: float = 0.4
@@ -41,26 +55,26 @@ class YOLOInference:
             List of detections: [(class_id, confidence, x, y, w, h), ...]
         """
         # Load and preprocess image
-        image = Image.open(image_path).convert("RGB")
-        img_tensor = self.transform(image).unsqueeze(0).to(self.device)
+        image = self.load_image(image_path)
+        img_tensor = self.preprocess_image(image)
 
         # Forward pass
         with torch.no_grad():
             predictions = self.model(img_tensor)
 
         # Parse predictions
-        detections = self._parse_predictions(predictions[0], conf_threshold)
+        detections = self.parse_predictions(predictions[0], conf_threshold)
 
         # Apply NMS
-        detections = self._non_max_suppression(detections, nms_threshold)
+        detections = self.non_max_suppression(detections, nms_threshold)
 
         return detections
 
-    Detections = list[Detection]
-
-    def _parse_predictions(
-        self, pred: torch.Tensor, conf_threshold: float
-    ) -> Detections:
+    def parse_predictions(
+        self,
+        pred: torch.Tensor,
+        conf_threshold: float,
+    ) -> list[Detection]:
         """Parse YOLO output tensor into bounding boxes
         Args:
             pred: Prediction tensor of shape (S, S, B*5 + C)
@@ -70,7 +84,6 @@ class YOLOInference:
         """
         S = self.model.S
         B = self.model.B
-
         detections: list[Detection] = []
 
         for i in range(S):
@@ -99,38 +112,7 @@ class YOLOInference:
 
         return detections
 
-    def _non_max_suppression(
-        self,
-        detections: list[Detection],
-        nms_threshold: float,
-    ) -> list[Detection]:
-        """Apply non-maximum suppression (remove overlapping boxes).
-        Args:
-            detections: List of detections [(class_id, confidence, x, y, w, h), ...]
-            nms_threshold: IoU threshold for NMS
-        Returns:
-            Filtered list of detections after NMS
-        """
-        if len(detections) == 0:
-            return []
-
-        detections = sorted(detections, key=lambda x: x[1], reverse=True)
-        keep = []
-
-        while detections:
-            current = detections.pop(0)
-            keep.append(current)
-
-            detections = [
-                det
-                for det in detections
-                if det[0] != current[0]
-                or self._iou(current[2:], det[2:]) < nms_threshold
-            ]
-
-        return keep
-
-    def _iou(
+    def iou(
         self,
         box1: Box,
         box2: Box,
@@ -164,6 +146,37 @@ class YOLOInference:
         # Add EPSILON for numerical stability to avoid division by zero
         iou = inter_area / (box1_area + box2_area - inter_area + EPSILON)
         return iou
+
+    def non_max_suppression(
+        self,
+        detections: list[Detection],
+        nms_threshold: float,
+    ) -> list[Detection]:
+        """Apply non-maximum suppression (remove overlapping boxes).
+        Args:
+            detections: List of detections [(class_id, confidence, x, y, w, h), ...]
+            nms_threshold: IoU threshold for NMS
+        Returns:
+            Filtered list of detections after NMS
+        """
+        if len(detections) == 0:
+            return []
+
+        detections = sorted(detections, key=lambda x: x[1], reverse=True)
+        keep = []
+
+        while detections:
+            current = detections.pop(0)
+            keep.append(current)
+
+            detections = [
+                det
+                for det in detections
+                if det[0] != current[0]
+                or self.iou(current[2:], det[2:]) < nms_threshold
+            ]
+
+        return keep
 
 
 # Example usage
