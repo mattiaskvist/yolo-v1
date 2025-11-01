@@ -183,7 +183,7 @@ class YOLOInference:
 
 # Example usage
 if __name__ == "__main__":
-    from yolo.models import YOLOv1, YOLOv1ResNet
+    from yolo.models import YOLOv1, YOLOv1ResNet  # noqa: F401
 
     # model = YOLOv1(num_classes=20)
     model = YOLOv1ResNet(num_classes=20, freeze_backbone=True)
