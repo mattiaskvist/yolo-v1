@@ -1,10 +1,12 @@
+import sys
+
 import torch
-from torchvision import transforms
-from PIL import Image
 import torch.nn as nn
+from PIL import Image
+from torchvision import transforms
 
 # Small epsilon value to avoid division by zero in IoU calculation
-EPSILON = 1e-6
+EPSILON = sys.float_info.epsilon
 Detection = tuple[int, float, float, float, float, float]
 Box = tuple[float, float, float, float]
 
