@@ -85,8 +85,8 @@ class TestYOLOInference:
     def test_parse_predictions_shape(
         self, inference_engine: YOLOInference, sample_predictions: torch.Tensor
     ) -> None:
-        """Test _parse_predictions output format"""
-        detections = inference_engine._parse_predictions(
+        """Test parse_predictions output format"""
+        detections = inference_engine.parse_predictions(
             sample_predictions, conf_threshold=0.5
         )
 
@@ -105,8 +105,8 @@ class TestYOLOInference:
         pred[0, 0, 0:5] = torch.tensor([0.5, 0.5, 0.3, 0.3, 0.9])
         pred[0, 0, 10] = 0.8  # class probability
 
-        detections_low = inference_engine._parse_predictions(pred, conf_threshold=0.5)
-        detections_high = inference_engine._parse_predictions(pred, conf_threshold=0.9)
+        detections_low = inference_engine.parse_predictions(pred, conf_threshold=0.5)
+        detections_high = inference_engine.parse_predictions(pred, conf_threshold=0.9)
 
         assert len(detections_low) > 0
         assert len(detections_high) == 0
@@ -114,7 +114,7 @@ class TestYOLOInference:
     def test_iou_identical_boxes(self, inference_engine: YOLOInference) -> None:
         """Test IoU of identical boxes"""
         box = [0.5, 0.5, 0.3, 0.3]
-        iou = inference_engine._iou(box, box)
+        iou = inference_engine.iou(box, box)
 
         assert iou == pytest.approx(1.0, abs=1e-4)
 
@@ -122,7 +122,7 @@ class TestYOLOInference:
         """Test IoU of non-overlapping boxes"""
         box1 = [0.2, 0.2, 0.1, 0.1]
         box2 = [0.8, 0.8, 0.1, 0.1]
-        iou = inference_engine._iou(box1, box2)
+        iou = inference_engine.iou(box1, box2)
 
         assert iou == pytest.approx(0.0, abs=1e-5)
 
@@ -130,7 +130,7 @@ class TestYOLOInference:
         """Test IoU of partially overlapping boxes"""
         box1 = [0.5, 0.5, 0.4, 0.4]
         box2 = [0.6, 0.6, 0.4, 0.4]
-        iou = inference_engine._iou(box1, box2)
+        iou = inference_engine.iou(box1, box2)
 
         assert 0 < iou < 1
 
@@ -139,21 +139,21 @@ class TestYOLOInference:
         box1 = [0.3, 0.3, 0.2, 0.2]
         box2 = [0.4, 0.4, 0.2, 0.2]
 
-        iou1 = inference_engine._iou(box1, box2)
-        iou2 = inference_engine._iou(box2, box1)
+        iou1 = inference_engine.iou(box1, box2)
+        iou2 = inference_engine.iou(box2, box1)
 
         assert iou1 == pytest.approx(iou2, abs=1e-5)
 
     def test_nms_empty_list(self, inference_engine):
         """Test NMS with empty detection list"""
-        detections = inference_engine._non_max_suppression([], nms_threshold=0.5)
+        detections = inference_engine.non_max_suppression([], nms_threshold=0.5)
 
         assert detections == []
 
     def test_nms_single_detection(self, inference_engine: YOLOInference) -> None:
         """Test NMS with single detection"""
         detections = [[0, 0.9, 0.5, 0.5, 0.3, 0.3]]
-        result = inference_engine._non_max_suppression(detections, nms_threshold=0.5)
+        result = inference_engine.non_max_suppression(detections, nms_threshold=0.5)
 
         assert len(result) == 1
         assert result[0] == detections[0]
@@ -166,7 +166,7 @@ class TestYOLOInference:
             [0, 0.9, 0.5, 0.5, 0.3, 0.3],  # High confidence
             [0, 0.7, 0.52, 0.52, 0.3, 0.3],  # Lower confidence, overlapping
         ]
-        result = inference_engine._non_max_suppression(detections, nms_threshold=0.3)
+        result = inference_engine.non_max_suppression(detections, nms_threshold=0.3)
 
         assert len(result) == 1
         assert result[0][1] == 0.9  # Kept the higher confidence box
@@ -177,7 +177,7 @@ class TestYOLOInference:
             [0, 0.9, 0.5, 0.5, 0.3, 0.3],  # Class 0
             [1, 0.8, 0.52, 0.52, 0.3, 0.3],  # Class 1, overlapping
         ]
-        result = inference_engine._non_max_suppression(detections, nms_threshold=0.3)
+        result = inference_engine.non_max_suppression(detections, nms_threshold=0.3)
 
         assert len(result) == 2
 
@@ -189,7 +189,7 @@ class TestYOLOInference:
             [0, 0.9, 0.2, 0.2, 0.1, 0.1],  # Box 1
             [0, 0.8, 0.8, 0.8, 0.1, 0.1],  # Box 2, far away
         ]
-        result = inference_engine._non_max_suppression(detections, nms_threshold=0.5)
+        result = inference_engine.non_max_suppression(detections, nms_threshold=0.5)
 
         assert len(result) == 2
 
