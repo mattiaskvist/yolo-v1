@@ -70,13 +70,11 @@ class YOLOInference:
 
         return detections
 
-    Detections = list[Detection]
-
     def parse_predictions(
         self,
         pred: torch.Tensor,
         conf_threshold: float,
-    ) -> Detections:
+    ) -> list[Detection]:
         """Parse YOLO output tensor into bounding boxes
         Args:
             pred: Prediction tensor of shape (S, S, B*5 + C)
