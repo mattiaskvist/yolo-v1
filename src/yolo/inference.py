@@ -33,13 +33,12 @@ class YOLOInference:
             ]
         )
 
-    @staticmethod
-    def _load_image(image_path: str) -> Image.Image:
+    def load_image(self, image_path: str) -> Image.Image:
         """Load an image from the given path."""
         image = Image.open(image_path).convert("RGB")
         return image
 
-    def _preprocess_image(self, image: Image.Image) -> torch.Tensor:
+    def preprocess_image(self, image: Image.Image) -> torch.Tensor:
         """Preprocess the image for model input."""
         img_tensor = self.transform(image).unsqueeze(0).to(self.device)
         return img_tensor
@@ -56,25 +55,27 @@ class YOLOInference:
             List of detections: [(class_id, confidence, x, y, w, h), ...]
         """
         # Load and preprocess image
-        image = self._load_image(image_path)
-        img_tensor = self._preprocess_image(image)
+        image = self.load_image(image_path)
+        img_tensor = self.preprocess_image(image)
 
         # Forward pass
         with torch.no_grad():
             predictions = self.model(img_tensor)
 
         # Parse predictions
-        detections = self._parse_predictions(predictions[0], conf_threshold)
+        detections = self.parse_predictions(predictions[0], conf_threshold)
 
         # Apply NMS
-        detections = self._non_max_suppression(detections, nms_threshold)
+        detections = self.non_max_suppression(detections, nms_threshold)
 
         return detections
 
     Detections = list[Detection]
 
-    def _parse_predictions(
-        self, pred: torch.Tensor, conf_threshold: float
+    def parse_predictions(
+        self,
+        pred: torch.Tensor,
+        conf_threshold: float,
     ) -> Detections:
         """Parse YOLO output tensor into bounding boxes
         Args:
@@ -85,7 +86,6 @@ class YOLOInference:
         """
         S = self.model.S
         B = self.model.B
-
         detections: list[Detection] = []
 
         for i in range(S):
@@ -114,38 +114,7 @@ class YOLOInference:
 
         return detections
 
-    def _non_max_suppression(
-        self,
-        detections: list[Detection],
-        nms_threshold: float,
-    ) -> list[Detection]:
-        """Apply non-maximum suppression (remove overlapping boxes).
-        Args:
-            detections: List of detections [(class_id, confidence, x, y, w, h), ...]
-            nms_threshold: IoU threshold for NMS
-        Returns:
-            Filtered list of detections after NMS
-        """
-        if len(detections) == 0:
-            return []
-
-        detections = sorted(detections, key=lambda x: x[1], reverse=True)
-        keep = []
-
-        while detections:
-            current = detections.pop(0)
-            keep.append(current)
-
-            detections = [
-                det
-                for det in detections
-                if det[0] != current[0]
-                or self._iou(current[2:], det[2:]) < nms_threshold
-            ]
-
-        return keep
-
-    def _iou(
+    def iou(
         self,
         box1: Box,
         box2: Box,
@@ -179,6 +148,37 @@ class YOLOInference:
         # Add EPSILON for numerical stability to avoid division by zero
         iou = inter_area / (box1_area + box2_area - inter_area + EPSILON)
         return iou
+
+    def non_max_suppression(
+        self,
+        detections: list[Detection],
+        nms_threshold: float,
+    ) -> list[Detection]:
+        """Apply non-maximum suppression (remove overlapping boxes).
+        Args:
+            detections: List of detections [(class_id, confidence, x, y, w, h), ...]
+            nms_threshold: IoU threshold for NMS
+        Returns:
+            Filtered list of detections after NMS
+        """
+        if len(detections) == 0:
+            return []
+
+        detections = sorted(detections, key=lambda x: x[1], reverse=True)
+        keep = []
+
+        while detections:
+            current = detections.pop(0)
+            keep.append(current)
+
+            detections = [
+                det
+                for det in detections
+                if det[0] != current[0]
+                or self.iou(current[2:], det[2:]) < nms_threshold
+            ]
+
+        return keep
 
 
 # Example usage
