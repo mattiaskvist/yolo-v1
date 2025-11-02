@@ -34,6 +34,7 @@ from manim import (
     Wiggle,
     Write,
 )
+import random
 
 
 class YoloGridAndResponsibility(Scene):
@@ -70,8 +71,17 @@ class YoloGridAndResponsibility(Scene):
         ).arrange_in_grid(S, S, buff=0)
         grid.move_to(image_rect)
 
+        # Add grid cell labels
+        grid_text = VGroup()
+        for i in range(S):
+            for j in range(S):
+                cell_index = i * S + j
+                cell = grid[cell_index]
+                label = Text(f"{i}, {j}", font_size=18, color=GRAY_C)
+                label.move_to(cell.get_center())
+                grid_text.add(label)
         self.play(Create(grid), image_label.animate.next_to(image_rect, DOWN, buff=0.8))
-        self.wait(1)
+        self.play(FadeIn(grid_text))
 
         # --- 4. Add a Ground Truth Object (a "dog") ---
         # (x, y, w, h) in relative image coordinates (0.0 to 1.0)
@@ -116,7 +126,7 @@ class YoloGridAndResponsibility(Scene):
         )
 
         resp_text = Text(
-            "Cell (i, j) is responsible\nfor this object", t2c={"(i, j)": YELLOW}
+            "Cell (5, 4) is responsible\nfor this object", t2c={"(i, j)": YELLOW}
         )
         resp_text.scale(0.6).shift(RIGHT * 3.5)
 
@@ -560,7 +570,6 @@ class FinalResult(Scene):
 
         # Show many overlapping boxes
         messy_boxes = VGroup()
-        import random
 
         random.seed(42)  # For consistent positioning
         for _ in range(8):
