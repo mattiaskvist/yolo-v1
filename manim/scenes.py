@@ -70,7 +70,6 @@ class YoloGridAndResponsibility(Scene):
         ).arrange_in_grid(S, S, buff=0)
         grid.move_to(image_rect)
 
-        grid_text = Text(f"{S}x{S} Grid").scale(0.7).next_to(image_label)
         self.play(Create(grid), image_label.animate.next_to(image_rect, DOWN, buff=0.8))
         self.wait(1)
 
