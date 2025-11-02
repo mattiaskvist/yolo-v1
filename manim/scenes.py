@@ -1,6 +1,14 @@
 from manim import (
+    BLUE,
     DOWN,
     GRAY,
+    GRAY_B,
+    GRAY_C,
+    GREEN,
+    LEFT,
+    ORANGE,
+    PINK,
+    PURPLE,
     RED,
     RIGHT,
     UL,
@@ -8,34 +16,23 @@ from manim import (
     WHITE,
     YELLOW,
     Arrow,
+    Brace,
     Create,
+    DashedLine,
     Dot,
     FadeIn,
+    FadeOut,
+    FadeToColor,
     Flash,
+    Line,
     Rectangle,
     Scene,
     Square,
     Text,
-    VGroup,
-    Write,
-    GRAY_B,
-    LEFT,
-    Line,
-    Brace,
-    BLUE,
-    GRAY_C,
-    ORANGE,
-    GREEN,
     TransformFromCopy,
-    FadeOut,
-    MathTex,
-    Indicate,
-    SurroundingRectangle,
-    PURPLE,
-    PINK,
-    ReplacementTransform,
-    DashedLine,
+    VGroup,
     Wiggle,
+    Write,
 )
 
 
@@ -622,3 +619,183 @@ class FinalResult(Scene):
         self.play(Write(final_title))
         self.play(Write(subtitle))
         self.wait(3)
+
+
+class LargeObjectMultipleCells(Scene):
+    """
+    Clarifies that large objects are NOT detected by combining cells.
+    They are detected by ONE cell, and NMS cleans up incorrect
+    predictions from neighboring cells.
+    """
+
+    def construct(self):
+        S = 7
+        IMG_SIDE_LENGTH = 6.0
+
+        # --- 1. Title ---
+        title = Text("Handling Large Objects").scale(0.8).to_edge(UP, buff=0.3)
+        self.play(Write(title))
+
+        # --- 2. Create the 'Image' and Grid ---
+        image_rect = Square(
+            side_length=IMG_SIDE_LENGTH, color=WHITE, stroke_width=2
+        ).shift(LEFT * 2)
+        self.play(Create(image_rect))
+
+        grid = (
+            VGroup(
+                *[
+                    Square(
+                        side_length=IMG_SIDE_LENGTH / S,
+                        stroke_width=1,
+                        stroke_color=GRAY,
+                    )
+                    for _ in range(S * S)
+                ]
+            )
+            .arrange_in_grid(S, S, buff=0)
+            .move_to(image_rect)
+        )
+        self.play(Create(grid))
+
+        # --- 3. Add a LARGE Ground Truth Object (a "bus") ---
+        gt_center_rel = (0.4, 0.5)  # Center: (x=0.4, y=0.5)
+        gt_dims_rel = (0.5, 0.4)  # Size: 50% width, 40% height
+
+        img_origin_ul = image_rect.get_corner(UL)
+        gt_center_abs = (
+            img_origin_ul
+            + RIGHT * gt_center_rel[0] * IMG_SIDE_LENGTH
+            + DOWN * gt_center_rel[1] * IMG_SIDE_LENGTH
+        )
+
+        gt_box = Rectangle(
+            width=gt_dims_rel[0] * IMG_SIDE_LENGTH,
+            height=gt_dims_rel[1] * IMG_SIDE_LENGTH,
+            color=PURPLE,
+            stroke_width=3,
+        ).move_to(gt_center_abs)
+        gt_label = Text("Bus").scale(0.6).next_to(gt_box, UP, buff=0.1)
+
+        self.play(Create(gt_box), Write(gt_label))
+        self.wait(1)
+
+        # --- 4. Ask the Question ---
+        # Find ALL overlapping cells
+        overlapping_cells = VGroup()
+        for cell in grid:
+            # Simple overlap check (is cell center inside box?)
+            # A more accurate check would be box-box intersection
+            cell_center = cell.get_center()
+            if (
+                abs(cell_center[0] - gt_center_abs[0]) < gt_box.width / 2
+                and abs(cell_center[1] - gt_center_abs[1]) < gt_box.height / 2
+            ):
+                overlapping_cells.add(
+                    cell.copy().set(fill_color=PINK, fill_opacity=0.5)
+                )
+
+        self.play(FadeIn(overlapping_cells))
+
+        question = Text(
+            "Which cell is responsible?\nAll of them?", t2c={"All of them?": YELLOW}
+        )
+        question.scale(0.6).shift(RIGHT * 4)
+        self.play(Write(question))
+        self.wait(2)
+
+        # --- 5. The Answer ---
+        answer = Text(
+            "No! Only the cell with\nthe object's CENTER.", t2c={"CENTER": YELLOW}
+        )
+        answer.scale(0.6).next_to(question, DOWN, buff=0.5, aligned_edge=LEFT)
+
+        # Find and flash the *one* responsible cell
+        cell_i = int(gt_center_rel[1] * S)
+        cell_j = int(gt_center_rel[0] * S)
+        responsible_cell = (
+            grid[cell_i * S + cell_j].copy().set(fill_color=YELLOW, fill_opacity=0.8)
+        )
+
+        gt_center_dot = Dot(gt_center_abs, color=YELLOW, radius=0.08)
+
+        self.play(FadeOut(overlapping_cells), FadeOut(question))
+        self.play(FadeIn(responsible_cell), Create(gt_center_dot), Write(answer))
+        self.play(Flash(gt_center_dot, color=YELLOW, flash_radius=0.5, line_length=0.3))
+        self.wait(2)
+
+        # --- 6. The "What if?" ---
+        extra_text = Text(
+            "...but other cells might\n*still try* to predict it.", color=GRAY
+        )
+        extra_text.scale(0.6).next_to(answer, DOWN, buff=0.5, aligned_edge=LEFT)
+        self.play(Write(extra_text))
+
+        # Show correct box from center cell
+        box_good = gt_box.copy().set_color(GREEN)
+        label_good = (
+            Text("Conf: 0.9", color=GREEN).scale(0.5).next_to(box_good, DOWN, buff=0.2)
+        )
+
+        # Show incorrect box from a neighboring cell
+        box_bad_1 = Rectangle(
+            width=(gt_dims_rel[0] * 0.8) * IMG_SIDE_LENGTH,
+            height=(gt_dims_rel[1] * 1.1) * IMG_SIDE_LENGTH,
+            color=ORANGE,
+            stroke_width=2,
+        ).move_to(gt_center_abs + LEFT * 0.3 + UP * 0.2)
+        label_bad_1 = (
+            Text("Conf: 0.6", color=ORANGE)
+            .scale(0.5)
+            .next_to(box_bad_1, LEFT, buff=0.2)
+        )
+
+        # Show another incorrect box
+        box_bad_2 = Rectangle(
+            width=(gt_dims_rel[0] * 1.2) * IMG_SIDE_LENGTH,
+            height=(gt_dims_rel[1] * 0.7) * IMG_SIDE_LENGTH,
+            color=RED,
+            stroke_width=2,
+        ).move_to(gt_center_abs + RIGHT * 0.2 + DOWN * 0.1)
+        label_bad_2 = (
+            Text("Conf: 0.4", color=RED).scale(0.5).next_to(box_bad_2, DOWN, buff=0.2)
+        )
+
+        self.play(FadeOut(gt_box, gt_label, responsible_cell))
+        self.play(
+            Create(box_good),
+            Write(label_good),
+            Create(box_bad_1),
+            Write(label_bad_1),
+            Create(box_bad_2),
+            Write(label_bad_2),
+        )
+        self.wait(2)
+
+        # --- 7. The Conclusion ---
+        self.play(FadeOut(answer, extra_text))
+
+        conclusion1 = Text(
+            "This creates multiple, overlapping\npredictions for the same object..."
+        )
+        conclusion1.scale(0.6).shift(RIGHT * 4)
+        self.play(Write(conclusion1))
+        self.wait(2)
+
+        conclusion2 = Text(
+            "...which are all cleaned up by\nNon-Maximum Suppression (NMS)!",
+            t2c={"NMS": YELLOW},
+        )
+        conclusion2.scale(0.6).next_to(conclusion1, DOWN, buff=0.5, aligned_edge=LEFT)
+
+        self.play(Write(conclusion2))
+
+        # Animate NMS
+        self.play(
+            FadeToColor(box_bad_1, GRAY),
+            FadeToColor(label_bad_1, GRAY),
+            FadeToColor(box_bad_2, GRAY),
+            FadeToColor(label_bad_2, GRAY),
+        )
+        self.play(Wiggle(box_good))
+        self.wait(4)
