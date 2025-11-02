@@ -13,10 +13,12 @@ dependencies = [
     "kagglehub>=0.3.13",
     "modal>=1.2.1",
     "torchview>=0.2.7",
-    "manim>=0.19.0",
 ]
 
 [dependency-groups]
+animation = [
+    "manim>=0.19.0",
+]
 dev = [
     "pytest>=8.4.2",
     "ruff>=0.14.2",

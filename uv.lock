@@ -2182,7 +2182,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "kagglehub" },
-    { name = "manim" },
     { name = "matplotlib" },
     { name = "modal" },
     { name = "pillow" },
@@ -2193,6 +2192,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+animation = [
+    { name = "manim" },
+]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
@@ -2201,7 +2203,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "kagglehub", specifier = ">=0.3.13" },
-    { name = "manim", specifier = ">=0.19.0" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "modal", specifier = ">=1.2.1" },
     { name = "pillow", specifier = ">=11.3.0" },
@@ -2212,6 +2213,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+animation = [{ name = "manim", specifier = ">=0.19.0" }]
 dev = [
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "ruff", specifier = ">=0.14.2" },
