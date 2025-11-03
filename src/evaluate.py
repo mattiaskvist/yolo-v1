@@ -166,19 +166,19 @@ def main():
     # Print size-based metrics
     print("Size-Based Metrics:")
     print("-" * 70)
-    print("  Small objects  (area < 0.05):")
+    print("  Small objects  (area < 32x32):")
     print(
         f"    mAP50:95: {results['mAP50:95_small']:.4f}  (n={results['num_small_objects']})"
     )
     print(f"    mAP@0.5:  {results['mAP50_small']:.4f}")
     print(f"    mAP@0.75: {results['mAP75_small']:.4f}")
-    print("  Medium objects (0.05 <= area < 0.15):")
+    print("  Medium objects (32x32 <= area < 96x96):")
     print(
         f"    mAP50:95: {results['mAP50:95_medium']:.4f}  (n={results['num_medium_objects']})"
     )
     print(f"    mAP@0.5:  {results['mAP50_medium']:.4f}")
     print(f"    mAP@0.75: {results['mAP75_medium']:.4f}")
-    print("  Large objects  (area >= 0.15):")
+    print("  Large objects  (area >= 96x96):")
     print(
         f"    mAP50:95: {results['mAP50:95_large']:.4f}  (n={results['num_large_objects']})"
     )
