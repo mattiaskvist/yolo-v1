@@ -165,6 +165,10 @@ class mAPMetric:
         results["precision"] = overall_precision
         results["recall"] = overall_recall
 
+        # Calculate size-based metrics
+        size_metrics = self._compute_size_based_metrics()
+        results.update(size_metrics)
+
         return results
 
     def _parse_predictions(
@@ -486,6 +490,161 @@ class mAPMetric:
         recall = total_tp / (total_gt + EPSILON)
 
         return precision, recall
+
+    def _compute_size_based_metrics(self) -> Dict[str, float]:
+        """
+        Compute AP for small, medium, and large objects.
+
+        Size categories (based on object area in normalized coordinates):
+            - Small: area < 0.05 (approximately 32x32 pixels at 448x448 resolution)
+            - Medium: 0.05 <= area < 0.15 (approximately 32x32 to 96x96 pixels)
+            - Large: area >= 0.15 (approximately > 96x96 pixels)
+
+        Returns:
+            Dictionary containing size-based mAP metrics
+        """
+        # Define area thresholds (normalized coordinates, so area = w * h)
+        small_threshold = 0.05  # ~32x32 at 448x448
+        medium_threshold = 0.15  # ~96x96 at 448x448
+
+        results = {}
+
+        # Separate ground truths by size
+        small_gts = []
+        medium_gts = []
+        large_gts = []
+
+        for img_idx, gts in enumerate(self.all_ground_truths):
+            for gt_class, (x, y, w, h) in gts:
+                area = w * h
+                if area < small_threshold:
+                    small_gts.append((img_idx, gt_class, (x, y, w, h)))
+                elif area < medium_threshold:
+                    medium_gts.append((img_idx, gt_class, (x, y, w, h)))
+                else:
+                    large_gts.append((img_idx, gt_class, (x, y, w, h)))
+
+        # Calculate AP for each size category at different IoU thresholds
+        for size_name, size_gts in [
+            ("small", small_gts),
+            ("medium", medium_gts),
+            ("large", large_gts),
+        ]:
+            if len(size_gts) == 0:
+                results[f"mAP50:95_{size_name}"] = 0.0
+                results[f"mAP50_{size_name}"] = 0.0
+                results[f"mAP75_{size_name}"] = 0.0
+                continue
+
+            aps_per_threshold = {threshold: [] for threshold in self.iou_thresholds}
+
+            for class_id in range(self.num_classes):
+                for iou_threshold in self.iou_thresholds:
+                    ap = self._calculate_ap_for_size_class(
+                        class_id, iou_threshold, size_gts
+                    )
+                    aps_per_threshold[iou_threshold].append(ap)
+
+            # Calculate mAP for this size category
+            if 0.5 in self.iou_thresholds:
+                results[f"mAP50_{size_name}"] = np.mean(aps_per_threshold[0.5])
+            if 0.75 in self.iou_thresholds:
+                results[f"mAP75_{size_name}"] = np.mean(aps_per_threshold[0.75])
+
+            all_aps = [ap for aps in aps_per_threshold.values() for ap in aps]
+            results[f"mAP50:95_{size_name}"] = np.mean(all_aps)
+
+        # Add object count information
+        results["num_small_objects"] = len(small_gts)
+        results["num_medium_objects"] = len(medium_gts)
+        results["num_large_objects"] = len(large_gts)
+
+        return results
+
+    def _calculate_ap_for_size_class(
+        self,
+        class_id: int,
+        iou_threshold: float,
+        size_filtered_gts: List[Tuple[int, int, Tuple[float, float, float, float]]],
+    ) -> float:
+        """
+        Calculate AP for a specific class considering only ground truths of a certain size.
+
+        Args:
+            class_id: Class ID to calculate AP for
+            iou_threshold: IoU threshold for considering a detection as correct
+            size_filtered_gts: List of (img_idx, class_id, bbox) for specific size category
+
+        Returns:
+            Average Precision value
+        """
+        # Filter ground truths for this class
+        class_gts = [
+            (img_idx, bbox)
+            for img_idx, gt_class, bbox in size_filtered_gts
+            if gt_class == class_id
+        ]
+
+        if len(class_gts) == 0:
+            return 0.0
+
+        # Collect predictions for this class
+        class_predictions = []
+        for img_idx, preds in enumerate(self.all_predictions):
+            for pred_class, conf, pred_bbox in preds:
+                if pred_class == class_id:
+                    class_predictions.append((img_idx, conf, pred_bbox))
+
+        if len(class_predictions) == 0:
+            return 0.0
+
+        # Sort predictions by confidence
+        class_predictions = sorted(class_predictions, key=lambda x: x[1], reverse=True)
+
+        # Match predictions to ground truths
+        gt_matched = [False] * len(class_gts)
+        tp = np.zeros(len(class_predictions))
+        fp = np.zeros(len(class_predictions))
+
+        for pred_idx, (pred_img_idx, conf, pred_bbox) in enumerate(class_predictions):
+            best_iou = 0
+            best_gt_idx = -1
+
+            for gt_idx, (gt_img_idx, gt_bbox) in enumerate(class_gts):
+                if gt_img_idx != pred_img_idx:
+                    continue
+
+                iou = self._calculate_iou(pred_bbox, gt_bbox)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = gt_idx
+
+            if best_iou >= iou_threshold:
+                if not gt_matched[best_gt_idx]:
+                    tp[pred_idx] = 1
+                    gt_matched[best_gt_idx] = True
+                else:
+                    fp[pred_idx] = 1
+            else:
+                fp[pred_idx] = 1
+
+        # Calculate precision and recall
+        tp_cumsum = np.cumsum(tp)
+        fp_cumsum = np.cumsum(fp)
+        precisions = tp_cumsum / (tp_cumsum + fp_cumsum + EPSILON)
+        recalls = tp_cumsum / len(class_gts)
+
+        # Add sentinel values
+        precisions = np.concatenate(([1.0], precisions))
+        recalls = np.concatenate(([0.0], recalls))
+
+        # Compute AP using 11-point interpolation
+        ap = 0.0
+        for t in np.linspace(0, 1, 11):
+            p_interp = np.max(precisions[recalls >= t]) if np.any(recalls >= t) else 0
+            ap += p_interp / 11
+
+        return ap
 
 
 def evaluate_model(

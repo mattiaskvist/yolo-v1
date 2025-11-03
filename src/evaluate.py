@@ -163,6 +163,29 @@ def main():
     print(f"Recall: {results['recall']:.4f}")
     print()
 
+    # Print size-based metrics
+    print("Size-Based Metrics:")
+    print("-" * 70)
+    print("  Small objects  (area < 0.05):")
+    print(
+        f"    mAP50:95: {results['mAP50:95_small']:.4f}  (n={results['num_small_objects']})"
+    )
+    print(f"    mAP@0.5:  {results['mAP50_small']:.4f}")
+    print(f"    mAP@0.75: {results['mAP75_small']:.4f}")
+    print("  Medium objects (0.05 <= area < 0.15):")
+    print(
+        f"    mAP50:95: {results['mAP50:95_medium']:.4f}  (n={results['num_medium_objects']})"
+    )
+    print(f"    mAP@0.5:  {results['mAP50_medium']:.4f}")
+    print(f"    mAP@0.75: {results['mAP75_medium']:.4f}")
+    print("  Large objects  (area >= 0.15):")
+    print(
+        f"    mAP50:95: {results['mAP50:95_large']:.4f}  (n={results['num_large_objects']})"
+    )
+    print(f"    mAP@0.5:  {results['mAP50_large']:.4f}")
+    print(f"    mAP@0.75: {results['mAP75_large']:.4f}")
+    print()
+
     # Print per-class AP
     print("Per-class Average Precision (mAP50:95):")
     print("-" * 70)
@@ -191,6 +214,26 @@ def main():
         f.write(f"mAP@0.75: {results['mAP75']:.4f}\n")
         f.write(f"Precision: {results['precision']:.4f}\n")
         f.write(f"Recall: {results['recall']:.4f}\n")
+        f.write("\nSize-Based Metrics:\n")
+        f.write("-" * 70 + "\n")
+        f.write("  Small objects  (area < 32x32):\n")
+        f.write(
+            f"    mAP50:95: {results['mAP50:95_small']:.4f}  (n={results['num_small_objects']})\n"
+        )
+        f.write(f"    mAP@0.5:  {results['mAP50_small']:.4f}\n")
+        f.write(f"    mAP@0.75: {results['mAP75_small']:.4f}\n")
+        f.write("  Medium objects (32x32 <= area < 96x96):\n")
+        f.write(
+            f"    mAP50:95: {results['mAP50:95_medium']:.4f}  (n={results['num_medium_objects']})\n"
+        )
+        f.write(f"    mAP@0.5:  {results['mAP50_medium']:.4f}\n")
+        f.write(f"    mAP@0.75: {results['mAP75_medium']:.4f}\n")
+        f.write("  Large objects  (area >= 96x96):\n")
+        f.write(
+            f"    mAP50:95: {results['mAP50:95_large']:.4f}  (n={results['num_large_objects']})\n"
+        )
+        f.write(f"    mAP@0.5:  {results['mAP50_large']:.4f}\n")
+        f.write(f"    mAP@0.75: {results['mAP75_large']:.4f}\n")
         f.write("\nPer-class Average Precision (mAP50:95):\n")
         f.write("-" * 70 + "\n")
         for class_id, ap in class_aps:
