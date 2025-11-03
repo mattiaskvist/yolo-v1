@@ -13,6 +13,7 @@ dependencies = [
     "kagglehub>=0.3.13",
     "modal>=1.2.1",
     "torchview>=0.2.7",
+    "tqdm>=4.66.0",
 ]
 
 [dependency-groups]

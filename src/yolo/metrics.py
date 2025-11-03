@@ -10,6 +10,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import numpy as np
 from collections import defaultdict
+from tqdm import tqdm
 
 EPSILON = 1e-6  # Small value for numerical stability
 
@@ -19,35 +20,48 @@ class mAPMetric:
     Calculate mean Average Precision (mAP) for object detection.
 
     Implements the PASCAL VOC evaluation protocol with configurable IoU thresholds.
+    Supports multiple IoU thresholds for COCO-style evaluation (mAP50:95).
 
     Args:
         num_classes: Number of object classes
-        iou_threshold: IoU threshold for considering a detection as correct (default: 0.5)
+        iou_thresholds: List of IoU thresholds or single threshold (default: [0.5, 0.55, ..., 0.95])
         conf_threshold: Confidence threshold for filtering predictions (default: 0.01)
         nms_threshold: IoU threshold for non-maximum suppression (default: 0.4)
 
     Example:
-        >>> metric = mAPMetric(num_classes=20, iou_threshold=0.5)
+        >>> metric = mAPMetric(num_classes=20)
         >>> metric.reset()
         >>> # During evaluation loop:
         >>> for images, targets in dataloader:
         ...     predictions = model(images)
         ...     metric.update(predictions, targets)
         >>> results = metric.compute()
-        >>> print(f"mAP@0.5: {results['mAP']:.4f}")
+        >>> print(f"mAP50:95: {results['mAP50:95']:.4f}")
+        >>> print(f"mAP@0.5: {results['mAP50']:.4f}")
+        >>> print(f"mAP@0.75: {results['mAP75']:.4f}")
     """
 
     def __init__(
         self,
         num_classes: int,
-        iou_threshold: float = 0.5,
+        iou_thresholds: List[float] = None,
         conf_threshold: float = 0.01,
         nms_threshold: float = 0.4,
         S: int = 7,
         B: int = 2,
     ):
         self.num_classes = num_classes
-        self.iou_threshold = iou_threshold
+
+        # Default to COCO-style IoU thresholds (0.5 to 0.95 in steps of 0.05)
+        if iou_thresholds is None:
+            self.iou_thresholds = [
+                0.5 + 0.05 * i for i in range(10)
+            ]  # 0.5, 0.55, ..., 0.95
+        elif isinstance(iou_thresholds, (int, float)):
+            self.iou_thresholds = [float(iou_thresholds)]
+        else:
+            self.iou_thresholds = list(iou_thresholds)
+
         self.conf_threshold = conf_threshold
         self.nms_threshold = nms_threshold
         self.S = S
@@ -88,35 +102,72 @@ class mAPMetric:
 
     def compute(self) -> Dict[str, float]:
         """
-        Compute mAP and per-class AP.
+        Compute mAP and per-class AP at multiple IoU thresholds.
 
         Returns:
             Dictionary containing:
-                - 'mAP': mean Average Precision across all classes
-                - 'AP_class_X': Average Precision for class X
-                - 'precision': overall precision
-                - 'recall': overall recall
+                - 'mAP50:95': mean Average Precision across all classes and IoU thresholds 0.5:0.95
+                - 'mAP50': mAP at IoU threshold 0.5
+                - 'mAP75': mAP at IoU threshold 0.75
+                - 'AP50_class_X': AP at IoU 0.5 for class X
+                - 'AP75_class_X': AP at IoU 0.75 for class X
+                - 'AP50:95_class_X': Average AP across thresholds for class X
+                - 'precision': overall precision (at IoU 0.5)
+                - 'recall': overall recall (at IoU 0.5)
         """
         if len(self.all_predictions) == 0:
-            return {"mAP": 0.0, "precision": 0.0, "recall": 0.0}
+            return {
+                "mAP50:95": 0.0,
+                "mAP50": 0.0,
+                "mAP75": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+            }
 
-        # Calculate AP for each class
-        aps = []
         results = {}
 
+        # Calculate AP for each IoU threshold
+        aps_per_threshold = {threshold: [] for threshold in self.iou_thresholds}
+
         for class_id in range(self.num_classes):
-            ap, precision, recall = self._calculate_ap_for_class(class_id)
-            aps.append(ap)
-            results[f"AP_class_{class_id}"] = ap
+            class_aps = []
 
-        # Calculate mAP
-        mAP = np.mean(aps)
-        results["mAP"] = mAP
+            for iou_threshold in self.iou_thresholds:
+                ap, precision, recall = self._calculate_ap_for_class(
+                    class_id, iou_threshold
+                )
+                aps_per_threshold[iou_threshold].append(ap)
+                class_aps.append(ap)
 
-        # Calculate overall precision and recall
-        overall_precision, overall_recall = self._calculate_overall_metrics()
+                # Store specific thresholds
+                if iou_threshold == 0.5:
+                    results[f"AP50_class_{class_id}"] = ap
+                elif iou_threshold == 0.75:
+                    results[f"AP75_class_{class_id}"] = ap
+
+            # Average AP across all thresholds for this class
+            results[f"AP50:95_class_{class_id}"] = np.mean(class_aps)
+
+        # Calculate mAP at specific thresholds
+        if 0.5 in self.iou_thresholds:
+            results["mAP50"] = np.mean(aps_per_threshold[0.5])
+        if 0.75 in self.iou_thresholds:
+            results["mAP75"] = np.mean(aps_per_threshold[0.75])
+
+        # Calculate mAP50:95 (average across all thresholds and classes)
+        all_aps = [ap for aps in aps_per_threshold.values() for ap in aps]
+        results["mAP50:95"] = np.mean(all_aps)
+
+        # Calculate overall precision and recall at IoU 0.5
+        overall_precision, overall_recall = self._calculate_overall_metrics(
+            iou_threshold=0.5
+        )
         results["precision"] = overall_precision
         results["recall"] = overall_recall
+
+        # Calculate size-based metrics
+        size_metrics = self._compute_size_based_metrics()
+        results.update(size_metrics)
 
         return results
 
@@ -290,12 +341,15 @@ class mAPMetric:
 
         return inter_area / union_area
 
-    def _calculate_ap_for_class(self, class_id: int) -> Tuple[float, float, float]:
+    def _calculate_ap_for_class(
+        self, class_id: int, iou_threshold: float
+    ) -> Tuple[float, float, float]:
         """
-        Calculate Average Precision for a specific class.
+        Calculate Average Precision for a specific class at a given IoU threshold.
 
         Args:
             class_id: Class ID to calculate AP for
+            iou_threshold: IoU threshold for considering a detection as correct
 
         Returns:
             Tuple of (AP, precision, recall)
@@ -350,7 +404,7 @@ class mAPMetric:
                     best_gt_idx = gt_idx
 
             # Check if prediction matches a ground truth
-            if best_iou >= self.iou_threshold:
+            if best_iou >= iou_threshold:
                 if not gt_matched[best_gt_idx]:
                     tp[pred_idx] = 1
                     gt_matched[best_gt_idx] = True
@@ -388,9 +442,12 @@ class mAPMetric:
 
         return ap, final_precision, final_recall
 
-    def _calculate_overall_metrics(self) -> Tuple[float, float]:
+    def _calculate_overall_metrics(self, iou_threshold: float) -> Tuple[float, float]:
         """
-        Calculate overall precision and recall across all classes.
+        Calculate overall precision and recall across all classes at a given IoU threshold.
+
+        Args:
+            iou_threshold: IoU threshold for considering a detection as correct
 
         Returns:
             Tuple of (precision, recall)
@@ -423,7 +480,7 @@ class mAPMetric:
                         best_gt_idx = gt_idx
 
                 # Check if it's a true positive
-                if best_iou >= self.iou_threshold and not gt_matched[best_gt_idx]:
+                if best_iou >= iou_threshold and not gt_matched[best_gt_idx]:
                     total_tp += 1
                     gt_matched[best_gt_idx] = True
                 else:
@@ -434,45 +491,207 @@ class mAPMetric:
 
         return precision, recall
 
+    def _compute_size_based_metrics(self) -> Dict[str, float]:
+        """
+        Compute AP for small, medium, and large objects.
+
+        Size categories (based on object area in normalized coordinates):
+            - Small: area < 32²/448² ≈ 0.0051 (< 32x32 pixels at 448x448 resolution)
+            - Medium: 0.0051 <= area < 96²/448² ≈ 0.0459 (32x32 to 96x96 pixels)
+            - Large: area >= 0.0459 (> 96x96 pixels)
+
+        Note: For normalized coordinates, area = (w * h) where w and h are in [0, 1].
+              To convert from pixels: area = (width_pixels / 448)² = (height_pixels / 448)²
+              To convert to pixels: side_length_pixels = sqrt(area) * 448
+
+        Returns:
+            Dictionary containing size-based mAP metrics
+        """
+        # Define area thresholds (normalized coordinates, so area = w * h)
+        # Following COCO-style thresholds: 32x32 and 96x96 pixels
+        small_threshold = (32 / 448) ** 2  # ≈ 0.0051 (32x32 pixels)
+        medium_threshold = (96 / 448) ** 2  # ≈ 0.0459 (96x96 pixels)
+
+        results = {}
+
+        # Separate ground truths by size
+        small_gts = []
+        medium_gts = []
+        large_gts = []
+
+        for img_idx, gts in enumerate(self.all_ground_truths):
+            for gt_class, (x, y, w, h) in gts:
+                area = w * h
+                if area < small_threshold:
+                    small_gts.append((img_idx, gt_class, (x, y, w, h)))
+                elif area < medium_threshold:
+                    medium_gts.append((img_idx, gt_class, (x, y, w, h)))
+                else:
+                    large_gts.append((img_idx, gt_class, (x, y, w, h)))
+
+        # Calculate AP for each size category at different IoU thresholds
+        for size_name, size_gts in [
+            ("small", small_gts),
+            ("medium", medium_gts),
+            ("large", large_gts),
+        ]:
+            if len(size_gts) == 0:
+                results[f"mAP50:95_{size_name}"] = 0.0
+                results[f"mAP50_{size_name}"] = 0.0
+                results[f"mAP75_{size_name}"] = 0.0
+                continue
+
+            aps_per_threshold = {threshold: [] for threshold in self.iou_thresholds}
+
+            for class_id in range(self.num_classes):
+                for iou_threshold in self.iou_thresholds:
+                    ap = self._calculate_ap_for_size_class(
+                        class_id, iou_threshold, size_gts
+                    )
+                    aps_per_threshold[iou_threshold].append(ap)
+
+            # Calculate mAP for this size category
+            if 0.5 in self.iou_thresholds:
+                results[f"mAP50_{size_name}"] = np.mean(aps_per_threshold[0.5])
+            if 0.75 in self.iou_thresholds:
+                results[f"mAP75_{size_name}"] = np.mean(aps_per_threshold[0.75])
+
+            all_aps = [ap for aps in aps_per_threshold.values() for ap in aps]
+            results[f"mAP50:95_{size_name}"] = np.mean(all_aps)
+
+        # Add object count information
+        results["num_small_objects"] = len(small_gts)
+        results["num_medium_objects"] = len(medium_gts)
+        results["num_large_objects"] = len(large_gts)
+
+        return results
+
+    def _calculate_ap_for_size_class(
+        self,
+        class_id: int,
+        iou_threshold: float,
+        size_filtered_gts: List[Tuple[int, int, Tuple[float, float, float, float]]],
+    ) -> float:
+        """
+        Calculate AP for a specific class considering only ground truths of a certain size.
+
+        Args:
+            class_id: Class ID to calculate AP for
+            iou_threshold: IoU threshold for considering a detection as correct
+            size_filtered_gts: List of (img_idx, class_id, bbox) for specific size category
+
+        Returns:
+            Average Precision value
+        """
+        # Filter ground truths for this class
+        class_gts = [
+            (img_idx, bbox)
+            for img_idx, gt_class, bbox in size_filtered_gts
+            if gt_class == class_id
+        ]
+
+        if len(class_gts) == 0:
+            return 0.0
+
+        # Collect predictions for this class
+        class_predictions = []
+        for img_idx, preds in enumerate(self.all_predictions):
+            for pred_class, conf, pred_bbox in preds:
+                if pred_class == class_id:
+                    class_predictions.append((img_idx, conf, pred_bbox))
+
+        if len(class_predictions) == 0:
+            return 0.0
+
+        # Sort predictions by confidence
+        class_predictions = sorted(class_predictions, key=lambda x: x[1], reverse=True)
+
+        # Match predictions to ground truths
+        gt_matched = [False] * len(class_gts)
+        tp = np.zeros(len(class_predictions))
+        fp = np.zeros(len(class_predictions))
+
+        for pred_idx, (pred_img_idx, conf, pred_bbox) in enumerate(class_predictions):
+            best_iou = 0
+            best_gt_idx = -1
+
+            for gt_idx, (gt_img_idx, gt_bbox) in enumerate(class_gts):
+                if gt_img_idx != pred_img_idx:
+                    continue
+
+                iou = self._calculate_iou(pred_bbox, gt_bbox)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = gt_idx
+
+            if best_iou >= iou_threshold:
+                if not gt_matched[best_gt_idx]:
+                    tp[pred_idx] = 1
+                    gt_matched[best_gt_idx] = True
+                else:
+                    fp[pred_idx] = 1
+            else:
+                fp[pred_idx] = 1
+
+        # Calculate precision and recall
+        tp_cumsum = np.cumsum(tp)
+        fp_cumsum = np.cumsum(fp)
+        precisions = tp_cumsum / (tp_cumsum + fp_cumsum + EPSILON)
+        recalls = tp_cumsum / len(class_gts)
+
+        # Add sentinel values
+        precisions = np.concatenate(([1.0], precisions))
+        recalls = np.concatenate(([0.0], recalls))
+
+        # Compute AP using 11-point interpolation
+        ap = 0.0
+        for t in np.linspace(0, 1, 11):
+            p_interp = np.max(precisions[recalls >= t]) if np.any(recalls >= t) else 0
+            ap += p_interp / 11
+
+        return ap
+
 
 def evaluate_model(
     model: nn.Module,
     dataloader: DataLoader,
     device: str,
     num_classes: int = 20,
-    iou_threshold: float = 0.5,
+    iou_thresholds: List[float] = None,
     conf_threshold: float = 0.01,
     nms_threshold: float = 0.4,
     S: int = 7,
     B: int = 2,
 ) -> Dict[str, float]:
     """
-    Evaluate a YOLO model on a dataset and compute mAP.
+    Evaluate a YOLO model on a dataset and compute mAP at multiple IoU thresholds.
 
     Args:
         model: YOLO model to evaluate
         dataloader: DataLoader for evaluation dataset
         device: Device to run evaluation on
         num_classes: Number of object classes
-        iou_threshold: IoU threshold for mAP calculation
+        iou_thresholds: List of IoU thresholds for mAP calculation (default: 0.5:0.95)
         conf_threshold: Confidence threshold for filtering predictions
         nms_threshold: NMS threshold
         S: Grid size
         B: Number of bounding boxes per cell
 
     Returns:
-        Dictionary of metrics including mAP, per-class AP, precision, and recall
+        Dictionary of metrics including mAP50:95, mAP50, mAP75, per-class AP, precision, and recall
 
     Example:
         >>> results = evaluate_model(model, val_loader, device='cuda', num_classes=20)
-        >>> print(f"mAP: {results['mAP']:.4f}")
+        >>> print(f"mAP50:95: {results['mAP50:95']:.4f}")
+        >>> print(f"mAP@0.5: {results['mAP50']:.4f}")
+        >>> print(f"mAP@0.75: {results['mAP75']:.4f}")
         >>> print(f"Precision: {results['precision']:.4f}")
         >>> print(f"Recall: {results['recall']:.4f}")
     """
     model.eval()
     metric = mAPMetric(
         num_classes=num_classes,
-        iou_threshold=iou_threshold,
+        iou_thresholds=iou_thresholds,
         conf_threshold=conf_threshold,
         nms_threshold=nms_threshold,
         S=S,
@@ -480,7 +699,7 @@ def evaluate_model(
     )
 
     with torch.no_grad():
-        for images, targets in dataloader:
+        for images, targets in tqdm(dataloader, desc="Evaluating", unit="batch"):
             images = images.to(device)
             targets = targets.to(device)
 

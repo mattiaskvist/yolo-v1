@@ -2189,6 +2189,7 @@ dependencies = [
     { name = "torch" },
     { name = "torchview" },
     { name = "torchvision" },
+    { name = "tqdm" },
 ]
 
 [package.dev-dependencies]
@@ -2210,6 +2211,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.8.0" },
     { name = "torchview", specifier = ">=0.2.7" },
     { name = "torchvision", specifier = ">=0.23.0" },
+    { name = "tqdm", specifier = ">=4.66.0" },
 ]
 
 [package.metadata.requires-dev]

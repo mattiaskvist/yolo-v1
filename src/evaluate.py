@@ -36,13 +36,6 @@ def main():
         help="Freeze ResNet backbone (should match training config)",
     )
 
-    # Data
-    parser.add_argument(
-        "--data-root",
-        type=str,
-        default="./data",
-        help="Path to VOC dataset root",
-    )
     parser.add_argument(
         "--year",
         type=str,
@@ -68,13 +61,6 @@ def main():
         help="Number of data loading workers",
     )
 
-    # Evaluation parameters
-    parser.add_argument(
-        "--iou-threshold",
-        type=float,
-        default=0.5,
-        help="IoU threshold for mAP calculation",
-    )
     parser.add_argument(
         "--conf-threshold",
         type=float,
@@ -105,14 +91,14 @@ def main():
     print(f"Using device: {device}")
 
     # Load dataset
-    print(f"\nLoading {args.year} {args.image_set} dataset from {args.data_root}...")
+    print(f"\nLoading {args.year} {args.image_set} dataset")
     dataset = VOCDetectionYOLO(
-        root=args.data_root,
         year=args.year,
         image_set=args.image_set,
-        download=False,
+        download=True,
         S=7,
         B=2,
+        augment=False,
     )
     print(f"Dataset size: {len(dataset)} images")
 
@@ -140,7 +126,9 @@ def main():
         print(f"Checkpoint from epoch {checkpoint['epoch']}")
     if "val_loss" in checkpoint:
         print(f"Validation loss: {checkpoint['val_loss']:.4f}")
-    if "mAP" in checkpoint:
+    if "mAP50:95" in checkpoint:
+        print(f"mAP50:95 (from checkpoint): {checkpoint['mAP50:95']:.4f}")
+    elif "mAP" in checkpoint:
         print(f"mAP (from checkpoint): {checkpoint['mAP']:.4f}")
 
     # Count parameters
@@ -152,18 +140,12 @@ def main():
 
     # Evaluate
     print(f"\nEvaluating on {len(dataset)} images...")
-    print("Configuration:")
-    print(f"  IoU threshold: {args.iou_threshold}")
-    print(f"  Confidence threshold: {args.conf_threshold}")
-    print(f"  NMS threshold: {args.nms_threshold}")
-    print()
 
     results = evaluate_model(
         model=model,
         dataloader=dataloader,
         device=device,
         num_classes=args.num_classes,
-        iou_threshold=args.iou_threshold,
         conf_threshold=args.conf_threshold,
         nms_threshold=args.nms_threshold,
         S=7,
@@ -174,9 +156,34 @@ def main():
     print("\n" + "=" * 70)
     print("EVALUATION RESULTS")
     print("=" * 70)
-    print(f"mAP@{args.iou_threshold}: {results['mAP']:.4f}")
+    print(f"mAP50:95: {results['mAP50:95']:.4f}")
+    print(f"mAP@0.5: {results['mAP50']:.4f}")
+    print(f"mAP@0.75: {results['mAP75']:.4f}")
     print(f"Precision: {results['precision']:.4f}")
     print(f"Recall: {results['recall']:.4f}")
+    print()
+
+    # Print size-based metrics
+    print("Size-Based Metrics:")
+    print("-" * 70)
+    print("  Small objects  (area < 32x32):")
+    print(
+        f"    mAP50:95: {results['mAP50:95_small']:.4f}  (n={results['num_small_objects']})"
+    )
+    print(f"    mAP@0.5:  {results['mAP50_small']:.4f}")
+    print(f"    mAP@0.75: {results['mAP75_small']:.4f}")
+    print("  Medium objects (32x32 <= area < 96x96):")
+    print(
+        f"    mAP50:95: {results['mAP50:95_medium']:.4f}  (n={results['num_medium_objects']})"
+    )
+    print(f"    mAP@0.5:  {results['mAP50_medium']:.4f}")
+    print(f"    mAP@0.75: {results['mAP75_medium']:.4f}")
+    print("  Large objects  (area >= 96x96):")
+    print(
+        f"    mAP50:95: {results['mAP50:95_large']:.4f}  (n={results['num_large_objects']})"
+    )
+    print(f"    mAP@0.5:  {results['mAP50_large']:.4f}")
+    print(f"    mAP@0.75: {results['mAP75_large']:.4f}")
     print()
 
     # Print per-class AP
@@ -184,13 +191,19 @@ def main():
     print("-" * 70)
     class_names = VOCDetectionYOLO.VOC_CLASSES
 
-    # Sort classes by AP for better readability
-    class_aps = [(i, results[f"AP_class_{i}"]) for i in range(args.num_classes)]
-    class_aps.sort(key=lambda x: x[1], reverse=True)
+    # Sort classes by AP50:95 for better readability
+    class_aps_5095 = [
+        (i, results[f"AP50:95_class_{i}"]) for i in range(args.num_classes)
+    ]
+    class_aps_5095.sort(key=lambda x: x[1], reverse=True)
 
-    for class_id, ap in class_aps:
+    print(f"{'Class':<15} {'AP50:95':>8} {'AP50':>8} {'AP75':>8}")
+    print("-" * 70)
+    for class_id, ap_5095 in class_aps_5095:
         class_name = class_names[class_id]
-        print(f"  {class_name:15s}: {ap:.4f}")
+        ap50 = results[f"AP50_class_{class_id}"]
+        ap75 = results[f"AP75_class_{class_id}"]
+        print(f"{class_name:<15} {ap_5095:>8.4f} {ap50:>8.4f} {ap75:>8.4f}")
 
     print("=" * 70)
 
@@ -202,14 +215,40 @@ def main():
         f.write(f"Checkpoint: {args.checkpoint}\n")
         f.write(f"Dataset: VOC{args.year} {args.image_set}\n")
         f.write(f"Number of images: {len(dataset)}\n")
-        f.write(f"\nmAP@{args.iou_threshold}: {results['mAP']:.4f}\n")
+        f.write(f"\nmAP50:95: {results['mAP50:95']:.4f}\n")
+        f.write(f"mAP@0.5: {results['mAP50']:.4f}\n")
+        f.write(f"mAP@0.75: {results['mAP75']:.4f}\n")
         f.write(f"Precision: {results['precision']:.4f}\n")
         f.write(f"Recall: {results['recall']:.4f}\n")
+        f.write("\nSize-Based Metrics:\n")
+        f.write("-" * 70 + "\n")
+        f.write("  Small objects  (area < 32x32):\n")
+        f.write(
+            f"    mAP50:95: {results['mAP50:95_small']:.4f}  (n={results['num_small_objects']})\n"
+        )
+        f.write(f"    mAP@0.5:  {results['mAP50_small']:.4f}\n")
+        f.write(f"    mAP@0.75: {results['mAP75_small']:.4f}\n")
+        f.write("  Medium objects (32x32 <= area < 96x96):\n")
+        f.write(
+            f"    mAP50:95: {results['mAP50:95_medium']:.4f}  (n={results['num_medium_objects']})\n"
+        )
+        f.write(f"    mAP@0.5:  {results['mAP50_medium']:.4f}\n")
+        f.write(f"    mAP@0.75: {results['mAP75_medium']:.4f}\n")
+        f.write("  Large objects  (area >= 96x96):\n")
+        f.write(
+            f"    mAP50:95: {results['mAP50:95_large']:.4f}  (n={results['num_large_objects']})\n"
+        )
+        f.write(f"    mAP@0.5:  {results['mAP50_large']:.4f}\n")
+        f.write(f"    mAP@0.75: {results['mAP75_large']:.4f}\n")
         f.write("\nPer-class Average Precision:\n")
         f.write("-" * 70 + "\n")
-        for class_id, ap in class_aps:
+        f.write(f"{'Class':<15} {'AP50:95':>8} {'AP50':>8} {'AP75':>8}\n")
+        f.write("-" * 70 + "\n")
+        for class_id, ap_5095 in class_aps_5095:
             class_name = class_names[class_id]
-            f.write(f"  {class_name:15s}: {ap:.4f}\n")
+            ap50 = results[f"AP50_class_{class_id}"]
+            ap75 = results[f"AP75_class_{class_id}"]
+            f.write(f"{class_name:<15} {ap_5095:>8.4f} {ap50:>8.4f} {ap75:>8.4f}\n")
         f.write("=" * 70 + "\n")
 
     print(f"\nResults saved to {results_file}")
