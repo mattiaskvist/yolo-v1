@@ -36,13 +36,6 @@ def main():
         help="Freeze ResNet backbone (should match training config)",
     )
 
-    # Data
-    parser.add_argument(
-        "--data-root",
-        type=str,
-        default="./data",
-        help="Path to VOC dataset root",
-    )
     parser.add_argument(
         "--year",
         type=str,
@@ -68,13 +61,6 @@ def main():
         help="Number of data loading workers",
     )
 
-    # Evaluation parameters
-    parser.add_argument(
-        "--iou-threshold",
-        type=float,
-        default=0.5,
-        help="IoU threshold for mAP calculation",
-    )
     parser.add_argument(
         "--conf-threshold",
         type=float,
@@ -105,14 +91,14 @@ def main():
     print(f"Using device: {device}")
 
     # Load dataset
-    print(f"\nLoading {args.year} {args.image_set} dataset from {args.data_root}...")
+    print(f"\nLoading {args.year} {args.image_set} dataset")
     dataset = VOCDetectionYOLO(
-        root=args.data_root,
         year=args.year,
         image_set=args.image_set,
-        download=False,
+        download=True,
         S=7,
         B=2,
+        augment=False,
     )
     print(f"Dataset size: {len(dataset)} images")
 
@@ -140,7 +126,9 @@ def main():
         print(f"Checkpoint from epoch {checkpoint['epoch']}")
     if "val_loss" in checkpoint:
         print(f"Validation loss: {checkpoint['val_loss']:.4f}")
-    if "mAP" in checkpoint:
+    if "mAP50:95" in checkpoint:
+        print(f"mAP50:95 (from checkpoint): {checkpoint['mAP50:95']:.4f}")
+    elif "mAP" in checkpoint:
         print(f"mAP (from checkpoint): {checkpoint['mAP']:.4f}")
 
     # Count parameters
@@ -152,18 +140,12 @@ def main():
 
     # Evaluate
     print(f"\nEvaluating on {len(dataset)} images...")
-    print("Configuration:")
-    print(f"  IoU threshold: {args.iou_threshold}")
-    print(f"  Confidence threshold: {args.conf_threshold}")
-    print(f"  NMS threshold: {args.nms_threshold}")
-    print()
 
     results = evaluate_model(
         model=model,
         dataloader=dataloader,
         device=device,
         num_classes=args.num_classes,
-        iou_threshold=args.iou_threshold,
         conf_threshold=args.conf_threshold,
         nms_threshold=args.nms_threshold,
         S=7,
@@ -174,18 +156,20 @@ def main():
     print("\n" + "=" * 70)
     print("EVALUATION RESULTS")
     print("=" * 70)
-    print(f"mAP@{args.iou_threshold}: {results['mAP']:.4f}")
+    print(f"mAP50:95: {results['mAP50:95']:.4f}")
+    print(f"mAP@0.5: {results['mAP50']:.4f}")
+    print(f"mAP@0.75: {results['mAP75']:.4f}")
     print(f"Precision: {results['precision']:.4f}")
     print(f"Recall: {results['recall']:.4f}")
     print()
 
     # Print per-class AP
-    print("Per-class Average Precision:")
+    print("Per-class Average Precision (mAP50:95):")
     print("-" * 70)
     class_names = VOCDetectionYOLO.VOC_CLASSES
 
     # Sort classes by AP for better readability
-    class_aps = [(i, results[f"AP_class_{i}"]) for i in range(args.num_classes)]
+    class_aps = [(i, results[f"AP50:95_class_{i}"]) for i in range(args.num_classes)]
     class_aps.sort(key=lambda x: x[1], reverse=True)
 
     for class_id, ap in class_aps:
@@ -202,10 +186,12 @@ def main():
         f.write(f"Checkpoint: {args.checkpoint}\n")
         f.write(f"Dataset: VOC{args.year} {args.image_set}\n")
         f.write(f"Number of images: {len(dataset)}\n")
-        f.write(f"\nmAP@{args.iou_threshold}: {results['mAP']:.4f}\n")
+        f.write(f"\nmAP50:95: {results['mAP50:95']:.4f}\n")
+        f.write(f"mAP@0.5: {results['mAP50']:.4f}\n")
+        f.write(f"mAP@0.75: {results['mAP75']:.4f}\n")
         f.write(f"Precision: {results['precision']:.4f}\n")
         f.write(f"Recall: {results['recall']:.4f}\n")
-        f.write("\nPer-class Average Precision:\n")
+        f.write("\nPer-class Average Precision (mAP50:95):\n")
         f.write("-" * 70 + "\n")
         for class_id, ap in class_aps:
             class_name = class_names[class_id]
