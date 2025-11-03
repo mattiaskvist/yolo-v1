@@ -496,16 +496,21 @@ class mAPMetric:
         Compute AP for small, medium, and large objects.
 
         Size categories (based on object area in normalized coordinates):
-            - Small: area < 0.05 (approximately 32x32 pixels at 448x448 resolution)
-            - Medium: 0.05 <= area < 0.15 (approximately 32x32 to 96x96 pixels)
-            - Large: area >= 0.15 (approximately > 96x96 pixels)
+            - Small: area < 32²/448² ≈ 0.0051 (< 32x32 pixels at 448x448 resolution)
+            - Medium: 0.0051 <= area < 96²/448² ≈ 0.0459 (32x32 to 96x96 pixels)
+            - Large: area >= 0.0459 (> 96x96 pixels)
+
+        Note: For normalized coordinates, area = (w * h) where w and h are in [0, 1].
+              To convert from pixels: area = (width_pixels / 448)² = (height_pixels / 448)²
+              To convert to pixels: side_length_pixels = sqrt(area) * 448
 
         Returns:
             Dictionary containing size-based mAP metrics
         """
         # Define area thresholds (normalized coordinates, so area = w * h)
-        small_threshold = 0.05  # ~32x32 at 448x448
-        medium_threshold = 0.15  # ~96x96 at 448x448
+        # Following COCO-style thresholds: 32x32 and 96x96 pixels
+        small_threshold = (32 / 448) ** 2  # ≈ 0.0051 (32x32 pixels)
+        medium_threshold = (96 / 448) ** 2  # ≈ 0.0459 (96x96 pixels)
 
         results = {}
 
