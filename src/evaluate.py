@@ -187,17 +187,23 @@ def main():
     print()
 
     # Print per-class AP
-    print("Per-class Average Precision (mAP50:95):")
+    print("Per-class Average Precision:")
     print("-" * 70)
     class_names = VOCDetectionYOLO.VOC_CLASSES
 
-    # Sort classes by AP for better readability
-    class_aps = [(i, results[f"AP50:95_class_{i}"]) for i in range(args.num_classes)]
-    class_aps.sort(key=lambda x: x[1], reverse=True)
+    # Sort classes by AP50:95 for better readability
+    class_aps_5095 = [
+        (i, results[f"AP50:95_class_{i}"]) for i in range(args.num_classes)
+    ]
+    class_aps_5095.sort(key=lambda x: x[1], reverse=True)
 
-    for class_id, ap in class_aps:
+    print(f"{'Class':<15} {'AP50:95':>8} {'AP50':>8} {'AP75':>8}")
+    print("-" * 70)
+    for class_id, ap_5095 in class_aps_5095:
         class_name = class_names[class_id]
-        print(f"  {class_name:15s}: {ap:.4f}")
+        ap50 = results[f"AP50_class_{class_id}"]
+        ap75 = results[f"AP75_class_{class_id}"]
+        print(f"{class_name:<15} {ap_5095:>8.4f} {ap50:>8.4f} {ap75:>8.4f}")
 
     print("=" * 70)
 
@@ -234,11 +240,15 @@ def main():
         )
         f.write(f"    mAP@0.5:  {results['mAP50_large']:.4f}\n")
         f.write(f"    mAP@0.75: {results['mAP75_large']:.4f}\n")
-        f.write("\nPer-class Average Precision (mAP50:95):\n")
+        f.write("\nPer-class Average Precision:\n")
         f.write("-" * 70 + "\n")
-        for class_id, ap in class_aps:
+        f.write(f"{'Class':<15} {'AP50:95':>8} {'AP50':>8} {'AP75':>8}\n")
+        f.write("-" * 70 + "\n")
+        for class_id, ap_5095 in class_aps_5095:
             class_name = class_names[class_id]
-            f.write(f"  {class_name:15s}: {ap:.4f}\n")
+            ap50 = results[f"AP50_class_{class_id}"]
+            ap75 = results[f"AP75_class_{class_id}"]
+            f.write(f"{class_name:<15} {ap_5095:>8.4f} {ap50:>8.4f} {ap75:>8.4f}\n")
         f.write("=" * 70 + "\n")
 
     print(f"\nResults saved to {results_file}")
