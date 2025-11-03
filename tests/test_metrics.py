@@ -12,9 +12,9 @@ class TestMapMetric:
 
     def test_initialization(self):
         """Test metric initialization."""
-        metric = mAPMetric(num_classes=20, iou_threshold=0.5)
+        metric = mAPMetric(num_classes=20, iou_thresholds=[0.5])
         assert metric.num_classes == 20
-        assert metric.iou_threshold == 0.5
+        assert metric.iou_thresholds == [0.5]
         assert metric.S == 7
         assert metric.B == 2
 
@@ -141,19 +141,23 @@ class TestMapMetric:
         # Compute results
         results = metric.compute()
 
-        # Check results structure
-        assert "mAP" in results
+        # Check results structure (new keys)
+        assert "mAP50:95" in results
+        assert "mAP50" in results
+        assert "mAP75" in results
         assert "precision" in results
         assert "recall" in results
-        assert all(f"AP_class_{i}" in results for i in range(20))
+        assert all(f"AP50:95_class_{i}" in results for i in range(20))
+        assert all(f"AP50_class_{i}" in results for i in range(20))
+        assert all(f"AP75_class_{i}" in results for i in range(20))
         # Check that AP values are within [0, 1]
         for i in range(20):
-            ap_value = results[f"AP_class_{i}"]
+            ap_value = results[f"AP50:95_class_{i}"]
             assert 0.0 <= ap_value <= 1.0
 
     def test_perfect_predictions(self):
         """Test with perfect predictions (should get mAP=1.0)."""
-        metric = mAPMetric(num_classes=20, S=7, B=2, iou_threshold=0.5)
+        metric = mAPMetric(num_classes=20, S=7, B=2, iou_thresholds=[0.5])
 
         # Create identical predictions and targets
         batch_size = 5
@@ -172,7 +176,8 @@ class TestMapMetric:
         results = metric.compute()
 
         # With perfect predictions, AP for class 0 should be 1.0
-        assert results["AP_class_0"] == pytest.approx(1.0, abs=1e-5)
+        assert results["AP50_class_0"] == pytest.approx(1.0, abs=1e-5)
+        assert results["AP50:95_class_0"] == pytest.approx(1.0, abs=1e-5)
         # Precision and recall should be 1.0
         assert results["precision"] == pytest.approx(1.0, abs=1e-5)
         assert results["recall"] == pytest.approx(1.0, abs=1e-5)
