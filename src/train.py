@@ -7,6 +7,7 @@ from pathlib import Path
 import modal
 import torch
 import torch.optim as optim
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -115,6 +116,7 @@ def print_training_config(args) -> None:
     print(f"  Freeze backbone: {args.freeze_backbone}")
     print(f"  Lambda coord: {args.lambda_coord}")
     print(f"  Lambda noobj: {args.lambda_noobj}")
+    print(f"  Mixed Precision (AMP): {'ENABLED' if args.use_amp else 'DISABLED'}")
 
 
 def print_tensorboard_info(log_dir: Path, log_root: str) -> None:
@@ -384,8 +386,13 @@ def train_epoch(
     device: str,
     epoch: int,
     writer: SummaryWriter = None,
+    scaler: GradScaler = None,
 ) -> dict[str, float]:
-    """Train for one epoch."""
+    """Train for one epoch.
+
+    Args:
+        scaler: GradScaler for automatic mixed precision training (optional)
+    """
     model.train()
 
     total_loss = 0
@@ -396,6 +403,7 @@ def train_epoch(
     num_batches = 0
 
     start_time = time.time()
+    use_amp = scaler is not None
 
     for batch_idx, (images, targets) in enumerate(dataloader):
         images = images.to(device)
@@ -403,18 +411,35 @@ def train_epoch(
 
         # Forward pass
         optimizer.zero_grad()
-        predictions = model(images)
 
-        # Calculate loss
-        loss, loss_dict = criterion(predictions, targets)
+        # Use automatic mixed precision if enabled
+        if use_amp:
+            with autocast("cuda"):
+                predictions = model(images)
+                loss, loss_dict = criterion(predictions, targets)
 
-        # Backward pass
-        loss.backward()
+            # Backward pass with gradient scaling
+            scaler.scale(loss).backward()
 
-        # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
+            # Gradient clipping (unscale gradients first)
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
 
-        optimizer.step()
+            # Optimizer step with scaler
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            # Standard forward pass
+            predictions = model(images)
+            loss, loss_dict = criterion(predictions, targets)
+
+            # Backward pass
+            loss.backward()
+
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
+
+            optimizer.step()
 
         # Accumulate losses
         total_loss += loss_dict["total"]
@@ -483,23 +508,24 @@ def validate(
     num_batches = 0
 
     with torch.no_grad():
-        for images, targets in dataloader:
-            images = images.to(device)
-            targets = targets.to(device)
+        with autocast(device_type=device):
+            for images, targets in dataloader:
+                images = images.to(device)
+                targets = targets.to(device)
 
-            # Forward pass
-            predictions = model(images)
+                # Forward pass
+                predictions = model(images)
 
-            # Calculate loss
-            _, loss_dict = criterion(predictions, targets)
+                # Calculate loss
+                _, loss_dict = criterion(predictions, targets)
 
-            # Accumulate losses
-            total_loss += loss_dict["total"]
-            coord_loss += loss_dict["coord"]
-            conf_obj_loss += loss_dict["conf_obj"]
-            conf_noobj_loss += loss_dict["conf_noobj"]
-            class_loss += loss_dict["class"]
-            num_batches += 1
+                # Accumulate losses
+                total_loss += loss_dict["total"]
+                coord_loss += loss_dict["coord"]
+                conf_obj_loss += loss_dict["conf_obj"]
+                conf_noobj_loss += loss_dict["conf_noobj"]
+                class_loss += loss_dict["class"]
+                num_batches += 1
 
     # Prepare results
     results = {
@@ -555,6 +581,7 @@ def train(
     start_epoch: int = 1,
     best_val_loss_init: float = None,
     best_map_init: float = None,
+    scaler: GradScaler = None,
 ) -> dict[str, float]:
     """Main training loop.
 
@@ -576,6 +603,7 @@ def train(
         start_epoch: Epoch number to start from (for resuming training)
         best_val_loss_init: Initial best validation loss (for resuming)
         best_map_init: Initial best mAP (for resuming)
+        scaler: GradScaler for automatic mixed precision training (optional)
 
     Returns:
         Dictionary containing final training metrics (best_val_loss, final_train_loss, etc.)
@@ -592,7 +620,7 @@ def train(
 
         # Train
         train_losses = train_epoch(
-            model, train_loader, criterion, optimizer, device, epoch, writer
+            model, train_loader, criterion, optimizer, device, epoch, writer, scaler
         )
         print_loss_metrics("Training", train_losses, epoch)
 
@@ -817,6 +845,7 @@ def run_training(args):
         "num_epochs": args.epochs,
         "total_params": total_params,
         "trainable_params": trainable_params,
+        "use_amp": args.use_amp,
     }
 
     # Create loss function
@@ -837,6 +866,14 @@ def run_training(args):
     scheduler = optim.lr_scheduler.MultiStepLR(
         optimizer, milestones=args.lr_decay_epochs, gamma=args.lr_decay_factor
     )
+
+    # Create GradScaler for automatic mixed precision training
+    scaler = None
+    if args.use_amp and device == "cuda":
+        scaler = GradScaler("cuda")
+        print("Automatic Mixed Precision (AMP) enabled")
+    elif args.use_amp and device != "cuda":
+        print("Warning: AMP requested but not using CUDA device. AMP will be disabled.")
 
     # Resume from checkpoint if specified
     start_epoch = 1
@@ -896,6 +933,7 @@ def run_training(args):
             start_epoch=start_epoch,
             best_val_loss_init=best_val_loss_resume,
             best_map_init=best_map_resume,
+            scaler=scaler,
         )
 
         # Log hyperparameters with final metrics to TensorBoard
@@ -914,8 +952,8 @@ def run_training(args):
 @app.local_entrypoint()
 def main(
     data_root: str = "../data",
-    batch_size: int = 64,  # true to the original paper
-    num_workers: int = 0,
+    batch_size: int = 64,
+    num_workers: int = 32,
     no_augment: bool = False,
     freeze_backbone: bool = False,
     num_classes: int = 20,
@@ -934,9 +972,10 @@ def main(
     tensorboard: bool = False,
     compute_map: bool = False,
     map_frequency: int = 5,
-    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    device: str = "cuda", # this will execute locally, so default to cuda
     download_data: bool = False,
     remote: bool = False,
+    use_amp: bool = False,
 ):
     """Main entry point when using Modal.
 
@@ -970,7 +1009,14 @@ def main(
         device=device,
         download_data=download_data,
         remote=remote,
+        use_amp=use_amp,
     )
+
+    if args.remote and args.checkpoint_dir == "checkpoints":
+        args.checkpoint_dir = str(MODEL_DIR / checkpoint_dir)
+        print(
+            f"Running remotely. Setting checkpoint directory to persistent volume: {args.checkpoint_dir}"
+        )
 
     if remote:
         run_training.remote(args)
