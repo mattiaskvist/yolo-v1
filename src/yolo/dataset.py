@@ -237,36 +237,44 @@ class VOCDetectionYOLO(Dataset):
         # Convert root to Path if it's a string
         root = Path(root)
 
-        # Construct the proper path for torchvision's VOCDetection
-        # torchvision internally appends: VOCdevkit/VOC{year}/ to the root
-        # So we need to provide the parent directory of VOCdevkit
-        #
-        # Kaggle structure:
-        # - VOC 2007: kaggle_root/VOCtrainval_06-Nov-2007/VOCdevkit/VOC2007/
-        #   => root should be: kaggle_root/VOCtrainval_06-Nov-2007/
-        # - VOC 2012: kaggle_root/VOC2012/VOC2012/ (no VOCdevkit folder)
-        #   => root should be: kaggle_root/ (torchvision will look for VOCdevkit/VOC2012)
-        #      but we need to create a symlink or adjust
-
+        # Construct proper path for torchvision's VOCDetection
+        # torchvision expects: root/VOCdevkit/VOC{year}/
         if base_year == "2007":
-            # For VOC 2007, provide parent of VOCdevkit
+            # VOC 2007: point to parent of VOCdevkit
             voc_root = root / self.split_paths[base_year][image_set]
         else:  # 2012
-            # For VOC 2012 from Kaggle, the structure is: root/VOC2012/VOC2012/
-            # We need torchvision to find: root/VOCdevkit/VOC2012/
-            # Create a symlink VOC2012 -> VOCdevkit if it doesn't exist
+            # VOC 2012: ensure proper directory structure for torchvision
+            # Kaggle structure: root/VOC2012/Annotations...
+            # torchvision expects: root/VOCdevkit/VOC2012/Annotations...
             voc_root = root
             vocdevkit_path = voc_root / "VOCdevkit"
             voc2012_path = voc_root / "VOC2012"
+            vocdevkit_voc2012_symlink = vocdevkit_path / "VOC2012"
 
-            if not vocdevkit_path.exists() and voc2012_path.exists():
-                # Create symlink: VOCdevkit (link) -> VOC2012 (target)
-                try:
-                    os.symlink(voc2012_path, vocdevkit_path)
-                except (OSError, FileExistsError):
-                    # If symlink fails (e.g., on Windows or permission issues),
-                    # just use the VOC2012 path directly (won't work with torchvision)
-                    pass
+            if voc2012_path.exists():
+                # Create VOCdevkit directory if needed
+                if not vocdevkit_path.exists():
+                    vocdevkit_path.mkdir(parents=True, exist_ok=True)
+
+                # Remove old symlink if VOCdevkit itself is a symlink
+                if vocdevkit_path.is_symlink():
+                    vocdevkit_path.unlink()
+                    vocdevkit_path.mkdir(parents=True, exist_ok=True)
+
+                # Remove broken symlink inside VOCdevkit
+                if (
+                    vocdevkit_voc2012_symlink.is_symlink()
+                    and not vocdevkit_voc2012_symlink.exists()
+                ):
+                    vocdevkit_voc2012_symlink.unlink()
+
+                # Create symlink if it doesn't exist
+                if not vocdevkit_voc2012_symlink.exists():
+                    os.symlink(voc2012_path, vocdevkit_voc2012_symlink)
+            else:
+                raise FileNotFoundError(
+                    f"VOC2012 directory not found at {voc2012_path}"
+                )
 
         # Create the underlying VOCDetection dataset
         self.voc_dataset = VOCDetection(
