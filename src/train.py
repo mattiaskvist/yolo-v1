@@ -914,7 +914,7 @@ def run_training(args):
 @app.local_entrypoint()
 def main(
     data_root: str = "../data",
-    batch_size: int = 64, # true to the original paper
+    batch_size: int = 64,  # true to the original paper
     num_workers: int = 0,
     no_augment: bool = False,
     freeze_backbone: bool = False,
