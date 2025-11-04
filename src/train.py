@@ -797,7 +797,7 @@ def run_training(args):
     )
 
     # Create model
-    backbone = ResNetBackbone(pretrained=True, freeze=True)
+    backbone = ResNetBackbone(pretrained=True, freeze=args.freeze_backbone)
     model = YOLOv1(backbone=backbone, num_classes=args.num_classes, S=7, B=2)
     model = model.to(device)
 
@@ -914,7 +914,7 @@ def run_training(args):
 @app.local_entrypoint()
 def main(
     data_root: str = "../data",
-    batch_size: int = 8,
+    batch_size: int = 64, # true to the original paper
     num_workers: int = 0,
     no_augment: bool = False,
     freeze_backbone: bool = False,
