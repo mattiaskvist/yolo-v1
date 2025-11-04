@@ -972,7 +972,7 @@ def main(
     tensorboard: bool = False,
     compute_map: bool = False,
     map_frequency: int = 5,
-    device: str = "cuda", # this will execute locally, so default to cuda
+    device: str = "cuda",  # this will execute locally, so default to cuda
     download_data: bool = False,
     remote: bool = False,
     use_amp: bool = False,
