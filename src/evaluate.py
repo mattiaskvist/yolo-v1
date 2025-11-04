@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from yolo import ResNetBackbone, YOLOv1, evaluate_model
-from yolo.dataset import VOCDetectionYOLO
+from yolo.dataset import VOCDetectionYOLO, create_voc_datasets
 
 
 def main():
@@ -40,13 +40,21 @@ def main():
         "--year",
         type=str,
         default="2007",
-        help="VOC dataset year (2007, 2012)",
+        help="VOC dataset year (2007, 2012). For single dataset evaluation.",
     )
     parser.add_argument(
         "--image-set",
         type=str,
         default="val",
-        help="Image set to evaluate on (train, val, test)",
+        help="Image set to evaluate on (train, val, trainval, test). For single dataset evaluation.",
+    )
+    parser.add_argument(
+        "--datasets",
+        type=str,
+        default=None,
+        help="Comma-separated list of year:split pairs for combined evaluation. "
+        "Example: '2007:trainval,2012:train' or '2012:val'. "
+        "If specified, overrides --year and --image-set.",
     )
     parser.add_argument(
         "--batch-size",
@@ -91,15 +99,36 @@ def main():
     print(f"Using device: {device}")
 
     # Load dataset
-    print(f"\nLoading {args.year} {args.image_set} dataset")
-    dataset = VOCDetectionYOLO(
-        year=args.year,
-        image_set=args.image_set,
-        download=True,
-        S=7,
-        B=2,
-        augment=False,
-    )
+    if args.datasets:
+        # Parse combined datasets specification
+        # Example: "2007:trainval,2012:train" -> [("2007", "trainval"), ("2012", "train")]
+        years_and_splits = []
+        for pair in args.datasets.split(","):
+            year, split = pair.strip().split(":")
+            years_and_splits.append((year, split))
+
+        dataset_desc = ", ".join([f"VOC{y} {s}" for y, s in years_and_splits])
+        print(f"\nLoading combined dataset: {dataset_desc}")
+
+        dataset = create_voc_datasets(
+            years_and_splits=years_and_splits,
+            download=True,
+            S=7,
+            B=2,
+            augment=False,
+        )
+    else:
+        # Single dataset (backward compatible)
+        print(f"\nLoading VOC{args.year} {args.image_set} dataset")
+        dataset = VOCDetectionYOLO(
+            year=args.year,
+            image_set=args.image_set,
+            download=True,
+            S=7,
+            B=2,
+            augment=False,
+        )
+
     print(f"Dataset size: {len(dataset)} images")
 
     # Create dataloader
@@ -209,11 +238,18 @@ def main():
 
     # Save results to file
     results_file = Path(args.checkpoint).parent / "evaluation_results.txt"
+
+    # Prepare dataset description for file
+    if args.datasets:
+        dataset_info = ", ".join([f"VOC{y} {s}" for y, s in years_and_splits])
+    else:
+        dataset_info = f"VOC{args.year} {args.image_set}"
+
     with open(results_file, "w") as f:
         f.write("YOLO v1 Evaluation Results\n")
         f.write("=" * 70 + "\n")
         f.write(f"Checkpoint: {args.checkpoint}\n")
-        f.write(f"Dataset: VOC{args.year} {args.image_set}\n")
+        f.write(f"Dataset: {dataset_info}\n")
         f.write(f"Number of images: {len(dataset)}\n")
         f.write(f"\nmAP50:95: {results['mAP50:95']:.4f}\n")
         f.write(f"mAP@0.5: {results['mAP50']:.4f}\n")

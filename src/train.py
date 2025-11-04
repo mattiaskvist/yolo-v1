@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from yolo import ResNetBackbone, YOLOv1, evaluate_model
-from yolo.dataset import VOCDetectionYOLO
+from yolo.dataset import create_voc_datasets
 from yolo.loss import YOLOLoss
 
 
@@ -757,19 +757,21 @@ def run_training(args):
         print_tensorboard_info(log_dir, args.log_dir)
 
     # Create datasets
-    train_dataset = VOCDetectionYOLO(
-        year="2007",
-        image_set="train",
+    # Training: VOC 2007 trainval + VOC 2012 train
+    print("\nCreating training dataset (VOC 2007 trainval + VOC 2012 train)...")
+    train_dataset = create_voc_datasets(
+        years_and_splits=[("2007", "trainval"), ("2012", "train")],
         download=True,
         S=7,
         B=2,
         augment=not args.no_augment,  # Enable augmentation by default
     )
 
-    val_dataset = VOCDetectionYOLO(
-        year="2007",
-        image_set="val",
-        download=True,  # Don't re-download for validation set
+    # Validation: VOC 2012 val
+    print("Creating validation dataset (VOC 2012 val)...")
+    val_dataset = create_voc_datasets(
+        years_and_splits=[("2012", "val")],
+        download=True,
         S=7,
         B=2,
         augment=False,  # Never augment validation set
