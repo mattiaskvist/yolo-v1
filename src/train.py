@@ -552,6 +552,9 @@ def train(
     compute_map: bool = False,
     map_frequency: int = 5,
     num_classes: int = 20,
+    start_epoch: int = 1,
+    best_val_loss_init: float = None,
+    best_map_init: float = None,
 ) -> dict[str, float]:
     """Main training loop.
 
@@ -570,16 +573,21 @@ def train(
         compute_map: Whether to compute mAP during validation
         map_frequency: Compute mAP every N epochs
         num_classes: Number of object classes
+        start_epoch: Epoch number to start from (for resuming training)
+        best_val_loss_init: Initial best validation loss (for resuming)
+        best_map_init: Initial best mAP (for resuming)
 
     Returns:
         Dictionary containing final training metrics (best_val_loss, final_train_loss, etc.)
     """
 
-    best_val_loss = float("inf")
-    best_map = 0.0
+    best_val_loss = (
+        best_val_loss_init if best_val_loss_init is not None else float("inf")
+    )
+    best_map = best_map_init if best_map_init is not None else 0.0
     final_train_loss = None
 
-    for epoch in range(1, num_epochs + 1):
+    for epoch in range(start_epoch, num_epochs + 1):
         print_epoch_header(epoch, num_epochs)
 
         # Train
@@ -829,15 +837,40 @@ def run_training(args):
     )
 
     # Resume from checkpoint if specified
+    start_epoch = 1
+    best_val_loss_resume = None
+    best_map_resume = None
+
     if args.resume:
-        print(f"\nResuming from checkpoint: {args.resume}")
-        checkpoint = torch.load(args.resume, map_location=device)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        if "scheduler_state_dict" in checkpoint:
-            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        resumed_epoch = checkpoint.get("epoch", 0)
-        print(f"Resumed from epoch {resumed_epoch}")
+        # If resume is True but no path provided, or if it's "true"/"True", use latest checkpoint
+        if args.resume == "true" or args.resume == "True" or args.resume is True:
+            resume_path = checkpoint_dir / "yolo_latest.pth"
+        else:
+            resume_path = Path(args.resume)
+
+        if resume_path.exists():
+            print(f"\nResuming from checkpoint: {resume_path}")
+            checkpoint = torch.load(resume_path, map_location=device)
+            model.load_state_dict(checkpoint["model_state_dict"])
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            if "scheduler_state_dict" in checkpoint:
+                scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+            start_epoch = checkpoint.get("epoch", 0) + 1
+
+            # Try to load best metrics from checkpoint if available
+            best_val_loss_resume = checkpoint.get("val_loss", None)
+            best_map_resume = checkpoint.get("mAP50:95", None)
+
+            print(
+                f"Resumed from epoch {checkpoint.get('epoch', 0)}, starting at epoch {start_epoch}"
+            )
+            if best_val_loss_resume is not None:
+                print(f"  Previous best val_loss: {best_val_loss_resume:.4f}")
+            if best_map_resume is not None:
+                print(f"  Previous best mAP@0.5:0.95: {best_map_resume:.4f}")
+        else:
+            print(f"\nWarning: Resume checkpoint not found at {resume_path}")
+            print("Starting training from scratch")
 
     # Train
     print_training_config(args)
@@ -858,6 +891,9 @@ def run_training(args):
             compute_map=args.compute_map,
             map_frequency=args.map_frequency,
             num_classes=args.num_classes,
+            start_epoch=start_epoch,
+            best_val_loss_init=best_val_loss_resume,
+            best_map_init=best_map_resume,
         )
 
         # Log hyperparameters with final metrics to TensorBoard
