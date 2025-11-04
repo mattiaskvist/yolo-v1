@@ -15,6 +15,143 @@ from yolo.dataset import VOCDetectionYOLO
 from yolo.loss import YOLOLoss
 
 
+# ============================================================================
+# Logging/Printing Utilities
+# ============================================================================
+
+
+def print_epoch_header(epoch: int, num_epochs: int):
+    """Print epoch header with separators."""
+    print(f"\n{'=' * 70}")
+    print(f"Epoch {epoch}/{num_epochs}")
+    print(f"{'=' * 70}")
+
+
+def print_loss_metrics(
+    prefix: str, losses: dict[str, float], epoch: int = None
+) -> None:
+    """Print loss metrics in a formatted way.
+
+    Args:
+        prefix: Prefix label (e.g., "Training", "Validation")
+        losses: Dictionary of loss values
+        epoch: Optional epoch number to include in output
+    """
+    epoch_str = f" - Epoch {epoch}" if epoch is not None else ""
+    print(f"\n{prefix}{epoch_str} Average Loss: {losses['total']:.4f}")
+    print(f"  Coord: {losses['coord']:.4f}")
+    print(f"  Conf (obj): {losses['conf_obj']:.4f}")
+    print(f"  Conf (noobj): {losses['conf_noobj']:.4f}")
+    print(f"  Class: {losses['class']:.4f}")
+
+
+def print_map_metrics(metrics: dict[str, float]) -> None:
+    """Print mAP metrics in a formatted way.
+
+    Args:
+        metrics: Dictionary containing mAP, precision, recall values
+    """
+    if "mAP50:95" not in metrics:
+        return
+
+    print(f"  mAP@0.5:0.95: {metrics['mAP50:95']:.4f}")
+    print(f"  mAP@0.5: {metrics['mAP50']:.4f}")
+    print(f"  mAP@0.75: {metrics['mAP75']:.4f}")
+    print(f"  Precision: {metrics['precision']:.4f}")
+    print(f"  Recall: {metrics['recall']:.4f}")
+
+    # Print size-based metrics if available
+    if "mAP50:95_small" in metrics:
+        print(f"  mAP@0.5:0.95 (small): {metrics['mAP50:95_small']:.4f}")
+    if "mAP50:95_medium" in metrics:
+        print(f"  mAP@0.5:0.95 (medium): {metrics['mAP50:95_medium']:.4f}")
+    if "mAP50:95_large" in metrics:
+        print(f"  mAP@0.5:0.95 (large): {metrics['mAP50:95_large']:.4f}")
+
+
+def print_dataset_info(
+    train_size: int, val_size: int, augmentation_enabled: bool
+) -> None:
+    """Print dataset loading information.
+
+    Args:
+        train_size: Number of training images
+        val_size: Number of validation images
+        augmentation_enabled: Whether data augmentation is enabled
+    """
+    print("\nLoading datasets...")
+    print(f"Train dataset: {train_size} images")
+    print(f"Val dataset: {val_size} images")
+    print(f"Data augmentation: {'ENABLED' if augmentation_enabled else 'DISABLED'}")
+    if augmentation_enabled:
+        print("  - Random scaling and translation (up to 20%)")
+        print("  - HSV color adjustments (exposure & saturation up to 1.5x)")
+
+
+def print_model_info(total_params: int, trainable_params: int) -> None:
+    """Print model parameter information.
+
+    Args:
+        total_params: Total number of parameters
+        trainable_params: Number of trainable parameters
+    """
+    print("\nCreating model...")
+    print(f"Total parameters: {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")
+    print(f"Frozen parameters: {total_params - trainable_params:,}")
+
+
+def print_training_config(args) -> None:
+    """Print training configuration parameters.
+
+    Args:
+        args: Parsed command line arguments
+    """
+    print("\nStarting training...")
+    print("Configuration:")
+    print(f"  Batch size: {args.batch_size}")
+    print(f"  Learning rate: {args.lr}")
+    print(f"  Epochs: {args.epochs}")
+    print(f"  Freeze backbone: {args.freeze_backbone}")
+    print(f"  Lambda coord: {args.lambda_coord}")
+    print(f"  Lambda noobj: {args.lambda_noobj}")
+
+
+def print_tensorboard_info(log_dir: Path, log_root: str) -> None:
+    """Print TensorBoard logging information.
+
+    Args:
+        log_dir: Directory where logs are being saved
+        log_root: Root directory for tensorboard command
+    """
+    print("\nTensorBoard logging enabled")
+    print(f"Log directory: {log_dir}")
+    print(f"To view logs, run: tensorboard --logdir={log_root}\n")
+
+
+def print_checkpoint_saved(
+    checkpoint_path: Path, metric_name: str = None, metric_value: float = None
+) -> None:
+    """Print checkpoint save notification.
+
+    Args:
+        checkpoint_path: Path where checkpoint was saved
+        metric_name: Optional metric name (e.g., "val_loss", "mAP@0.5:0.95")
+        metric_value: Optional metric value
+    """
+    if metric_name and metric_value is not None:
+        print(
+            f"Best model saved to {checkpoint_path} ({metric_name}: {metric_value:.4f})"
+        )
+    else:
+        print(f"Checkpoint saved to {checkpoint_path}")
+
+
+# ============================================================================
+# Training Functions
+# ============================================================================
+
+
 def train_epoch(
     model: torch.nn.Module,
     dataloader: DataLoader,
@@ -229,16 +366,13 @@ def train(
     final_train_loss = None
 
     for epoch in range(1, num_epochs + 1):
-        print(f"\n{'=' * 70}")
-        print(f"Epoch {epoch}/{num_epochs}")
-        print(f"{'=' * 70}")
+        print_epoch_header(epoch, num_epochs)
 
         # Train
         train_losses = train_epoch(
             model, train_loader, criterion, optimizer, device, epoch, writer
         )
-
-        print(f"\nTraining - Epoch {epoch} Average Loss: {train_losses['total']:.4f}")
+        print_loss_metrics("Training", train_losses, epoch)
 
         # Validate
         print("\nValidating...")
@@ -254,27 +388,8 @@ def train(
             num_classes=num_classes,
         )
 
-        print(f"Validation - Epoch {epoch} Average Loss: {val_losses['total']:.4f}")
-        print(f"  Coord: {val_losses['coord']:.4f}")
-        print(f"  Conf (obj): {val_losses['conf_obj']:.4f}")
-        print(f"  Conf (noobj): {val_losses['conf_noobj']:.4f}")
-        print(f"  Class: {val_losses['class']:.4f}")
-
-        # Print mAP metrics if computed
-        if "mAP50:95" in val_losses:
-            print(f"  mAP@0.5:0.95: {val_losses['mAP50:95']:.4f}")
-            print(f"  mAP@0.5: {val_losses['mAP50']:.4f}")
-            print(f"  mAP@0.75: {val_losses['mAP75']:.4f}")
-            print(f"  Precision: {val_losses['precision']:.4f}")
-            print(f"  Recall: {val_losses['recall']:.4f}")
-
-            # Print size-based metrics if available
-            if "mAP50:95_small" in val_losses:
-                print(f"  mAP@0.5:0.95 (small): {val_losses['mAP50:95_small']:.4f}")
-            if "mAP50:95_medium" in val_losses:
-                print(f"  mAP@0.5:0.95 (medium): {val_losses['mAP50:95_medium']:.4f}")
-            if "mAP50:95_large" in val_losses:
-                print(f"  mAP@0.5:0.95 (large): {val_losses['mAP50:95_large']:.4f}")
+        print_loss_metrics("Validation", val_losses, epoch)
+        print_map_metrics(val_losses)
 
         # Learning rate step
         scheduler.step()
@@ -342,7 +457,7 @@ def train(
                 checkpoint_data["mAP75"] = val_losses["mAP75"]
 
             torch.save(checkpoint_data, checkpoint_path)
-            print(f"Checkpoint saved to {checkpoint_path}")
+            print_checkpoint_saved(checkpoint_path)
 
         # Save best model (by validation loss)
         if val_losses["total"] < best_val_loss:
@@ -360,9 +475,7 @@ def train(
                 checkpoint_data["mAP75"] = val_losses["mAP75"]
 
             torch.save(checkpoint_data, best_model_path)
-            print(
-                f"Best model saved to {best_model_path} (val_loss: {best_val_loss:.4f})"
-            )
+            print_checkpoint_saved(best_model_path, "val_loss", best_val_loss)
 
         # Track best mAP (using mAP50:95 as the primary metric)
         if "mAP50:95" in val_losses and val_losses["mAP50:95"] > best_map:
@@ -378,9 +491,7 @@ def train(
                 "mAP75": val_losses["mAP75"],
             }
             torch.save(checkpoint_data, best_map_path)
-            print(
-                f"Best mAP model saved to {best_map_path} (mAP@0.5:0.95: {best_map:.4f})"
-            )
+            print_checkpoint_saved(best_map_path, "mAP@0.5:0.95", best_map)
 
         # Update final training loss
         final_train_loss = train_losses["total"]
@@ -568,16 +679,15 @@ def parse_args():
         modal.Secret.from_name("KAGGLE_KEY", required_keys=["KAGGLE_KEY"]),
     ],
 )
-@app.local_entrypoint()
 def run_training(args):
-    """Execute the training pipeline with the given arguments.
+    """Execute the training pipeline with Modal.
 
-    Args:
-        args: Parsed command line arguments from parse_args()
+    This function runs on Modal infrastructure and handles volume syncing.
     """
     # Make sure volumes are synced (Modal-specific)
-    model_volume.reload()
-    kaggle_volume.reload()
+    if not modal.is_local():
+        model_volume.reload()
+        kaggle_volume.reload()
 
     # Create checkpoint directory
     checkpoint_dir = Path(args.checkpoint_dir)
@@ -602,12 +712,9 @@ def run_training(args):
 
         log_dir = Path(args.log_dir) / exp_name
         writer = SummaryWriter(log_dir=str(log_dir))
-        print("\nTensorBoard logging enabled")
-        print(f"Log directory: {log_dir}")
-        print(f"To view logs, run: tensorboard --logdir={args.log_dir}\n")
+        print_tensorboard_info(log_dir, args.log_dir)
 
     # Create datasets
-    print("\nLoading datasets...")
     train_dataset = VOCDetectionYOLO(
         year="2007",
         image_set="train",
@@ -626,12 +733,7 @@ def run_training(args):
         augment=False,  # Never augment validation set
     )
 
-    print(f"Train dataset: {len(train_dataset)} images")
-    print(f"Val dataset: {len(val_dataset)} images")
-    print(f"Data augmentation: {'ENABLED' if not args.no_augment else 'DISABLED'}")
-    if not args.no_augment:
-        print("  - Random scaling and translation (up to 20%)")
-        print("  - HSV color adjustments (exposure & saturation up to 1.5x)")
+    print_dataset_info(len(train_dataset), len(val_dataset), not args.no_augment)
 
     # Create dataloaders
     train_loader = DataLoader(
@@ -651,17 +753,14 @@ def run_training(args):
     )
 
     # Create model
-    print("\nCreating model...")
     backbone = ResNetBackbone(pretrained=True, freeze=True)
     model = YOLOv1(backbone=backbone, num_classes=args.num_classes, S=7, B=2)
     model = model.to(device)
 
-    # Count parameters
+    # Count and display parameters
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Total parameters: {total_params:,}")
-    print(f"Trainable parameters: {trainable_params:,}")
-    print(f"Frozen parameters: {total_params - trainable_params:,}")
+    print_model_info(total_params, trainable_params)
 
     # Prepare hyperparameters for logging (will be logged after training with actual metrics)
     hparams = {
@@ -707,14 +806,7 @@ def run_training(args):
         print(f"Resumed from epoch {resumed_epoch}")
 
     # Train
-    print("\nStarting training...")
-    print("Configuration:")
-    print(f"  Batch size: {args.batch_size}")
-    print(f"  Learning rate: {args.lr}")
-    print(f"  Epochs: {args.epochs}")
-    print(f"  Freeze backbone: {args.freeze_backbone}")
-    print(f"  Lambda coord: {args.lambda_coord}")
-    print(f"  Lambda noobj: {args.lambda_noobj}")
+    print_training_config(args)
 
     try:
         final_metrics = train(
@@ -754,17 +846,71 @@ def run_training(args):
     print("\nTraining completed!")
 
 
-def main():
-    """Main entry point for local execution.
+@app.local_entrypoint()
+def main(
+    data_root: str = "../data",
+    batch_size: int = 8,
+    num_workers: int = 0,
+    no_augment: bool = False,
+    freeze_backbone: bool = False,
+    num_classes: int = 20,
+    epochs: int = 135,
+    lr: float = 1e-4,
+    weight_decay: float = 5e-4,
+    lr_decay_epochs: str = "75,105",  # Comma-separated epochs
+    lr_decay_factor: float = 0.1,
+    lambda_coord: float = 5.0,
+    lambda_noobj: float = 0.5,
+    checkpoint_dir: str = "checkpoints",
+    save_frequency: int = 10,
+    resume: str = None,
+    log_dir: str = "runs",
+    experiment_name: str = None,
+    tensorboard: bool = False,
+    compute_map: bool = False,
+    map_frequency: int = 5,
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    download_data: bool = False,
+    remote: bool = False,
+):
+    """Main entry point when using Modal.
 
-    Parses arguments and runs the training pipeline.
+    All training arguments are passed as function parameters to work with Modal's CLI.
     """
-    args = parse_args()
-    if args.remote:
+    # Create args namespace from parameters
+    import argparse
+
+    # Parse lr_decay_epochs from comma-separated string to list of ints
+    lr_decay_epochs_list = [int(x.strip()) for x in lr_decay_epochs.split(",")]
+
+    args = argparse.Namespace(
+        data_root=data_root,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        no_augment=no_augment,
+        freeze_backbone=freeze_backbone,
+        num_classes=num_classes,
+        epochs=epochs,
+        lr=lr,
+        weight_decay=weight_decay,
+        lr_decay_epochs=lr_decay_epochs_list,
+        lr_decay_factor=lr_decay_factor,
+        lambda_coord=lambda_coord,
+        lambda_noobj=lambda_noobj,
+        checkpoint_dir=checkpoint_dir,
+        save_frequency=save_frequency,
+        resume=resume,
+        log_dir=log_dir,
+        experiment_name=experiment_name,
+        tensorboard=tensorboard,
+        compute_map=compute_map,
+        map_frequency=map_frequency,
+        device=device,
+        download_data=download_data,
+        remote=remote,
+    )
+
+    if remote:
         run_training.remote(args)
     else:
         run_training.local(args)
-
-
-if __name__ == "__main__":
-    main()
