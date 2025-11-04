@@ -148,6 +148,230 @@ def print_checkpoint_saved(
 
 
 # ============================================================================
+# Checkpoint Saving Functions
+# ============================================================================
+
+
+def save_checkpoint(
+    checkpoint_path: Path,
+    epoch: int,
+    model: torch.nn.Module,
+    optimizer: optim.Optimizer,
+    scheduler: optim.lr_scheduler._LRScheduler,
+    train_losses: dict[str, float],
+    val_losses: dict[str, float],
+) -> None:
+    """Save a regular checkpoint during training.
+
+    Args:
+        checkpoint_path: Path where checkpoint will be saved
+        epoch: Current epoch number
+        model: Model to save
+        optimizer: Optimizer to save
+        scheduler: Learning rate scheduler to save
+        train_losses: Dictionary containing training loss values
+        val_losses: Dictionary containing validation loss and metric values
+    """
+    checkpoint_data = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "train_loss": train_losses["total"],
+        "val_loss": val_losses["total"],
+    }
+    if "mAP50:95" in val_losses:
+        checkpoint_data["mAP50:95"] = val_losses["mAP50:95"]
+        checkpoint_data["mAP50"] = val_losses["mAP50"]
+        checkpoint_data["mAP75"] = val_losses["mAP75"]
+
+    torch.save(checkpoint_data, checkpoint_path)
+    print_checkpoint_saved(checkpoint_path)
+
+
+def save_best_model(
+    checkpoint_path: Path,
+    epoch: int,
+    model: torch.nn.Module,
+    optimizer: optim.Optimizer,
+    val_losses: dict[str, float],
+    metric_name: str,
+    metric_value: float,
+) -> None:
+    """Save the best model checkpoint.
+
+    Args:
+        checkpoint_path: Path where checkpoint will be saved
+        epoch: Current epoch number
+        model: Model to save
+        optimizer: Optimizer to save
+        val_losses: Dictionary containing validation loss and metric values
+        metric_name: Name of the metric being optimized (e.g., "val_loss", "mAP@0.5:0.95")
+        metric_value: Value of the metric
+    """
+    checkpoint_data = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "val_loss": val_losses["total"],
+    }
+    if "mAP50:95" in val_losses:
+        checkpoint_data["mAP50:95"] = val_losses["mAP50:95"]
+        checkpoint_data["mAP50"] = val_losses["mAP50"]
+        checkpoint_data["mAP75"] = val_losses["mAP75"]
+
+    torch.save(checkpoint_data, checkpoint_path)
+    print_checkpoint_saved(checkpoint_path, metric_name, metric_value)
+
+
+def save_best_map_model(
+    checkpoint_path: Path,
+    epoch: int,
+    model: torch.nn.Module,
+    optimizer: optim.Optimizer,
+    val_losses: dict[str, float],
+    map_value: float,
+) -> None:
+    """Save the best mAP model checkpoint.
+
+    Args:
+        checkpoint_path: Path where checkpoint will be saved
+        epoch: Current epoch number
+        model: Model to save
+        optimizer: Optimizer to save
+        val_losses: Dictionary containing validation loss and metric values
+        map_value: mAP@0.5:0.95 value
+    """
+    checkpoint_data = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "val_loss": val_losses["total"],
+        "mAP50:95": val_losses["mAP50:95"],
+        "mAP50": val_losses["mAP50"],
+        "mAP75": val_losses["mAP75"],
+    }
+    torch.save(checkpoint_data, checkpoint_path)
+    print_checkpoint_saved(checkpoint_path, "mAP@0.5:0.95", map_value)
+
+
+# ============================================================================
+# TensorBoard Writer Functions
+# ============================================================================
+
+
+def log_batch_metrics(
+    writer: SummaryWriter,
+    loss_dict: dict[str, float],
+    epoch: int,
+    batch_idx: int,
+    num_batches: int,
+) -> None:
+    """Log batch-level metrics to TensorBoard.
+
+    Args:
+        writer: TensorBoard SummaryWriter instance
+        loss_dict: Dictionary containing loss values
+        epoch: Current epoch number
+        batch_idx: Current batch index (0-indexed)
+        num_batches: Total number of batches in epoch
+    """
+    if writer is None:
+        return
+
+    global_step = (epoch - 1) * num_batches + batch_idx
+    writer.add_scalar("batch/loss_total", loss_dict["total"], global_step)
+    writer.add_scalar("batch/loss_coord", loss_dict["coord"], global_step)
+    writer.add_scalar("batch/loss_conf_obj", loss_dict["conf_obj"], global_step)
+    writer.add_scalar("batch/loss_conf_noobj", loss_dict["conf_noobj"], global_step)
+    writer.add_scalar("batch/loss_class", loss_dict["class"], global_step)
+
+
+def log_epoch_metrics(
+    writer: SummaryWriter,
+    train_losses: dict[str, float],
+    val_losses: dict[str, float],
+    learning_rate: float,
+    epoch: int,
+) -> None:
+    """Log epoch-level metrics to TensorBoard.
+
+    Args:
+        writer: TensorBoard SummaryWriter instance
+        train_losses: Dictionary containing training loss values
+        val_losses: Dictionary containing validation loss and metric values
+        learning_rate: Current learning rate
+        epoch: Current epoch number
+    """
+    if writer is None:
+        return
+
+    # Log training losses
+    writer.add_scalar("epoch/train_loss_total", train_losses["total"], epoch)
+    writer.add_scalar("epoch/train_loss_coord", train_losses["coord"], epoch)
+    writer.add_scalar("epoch/train_loss_conf_obj", train_losses["conf_obj"], epoch)
+    writer.add_scalar("epoch/train_loss_conf_noobj", train_losses["conf_noobj"], epoch)
+    writer.add_scalar("epoch/train_loss_class", train_losses["class"], epoch)
+
+    # Log validation losses
+    writer.add_scalar("epoch/val_loss_total", val_losses["total"], epoch)
+    writer.add_scalar("epoch/val_loss_coord", val_losses["coord"], epoch)
+    writer.add_scalar("epoch/val_loss_conf_obj", val_losses["conf_obj"], epoch)
+    writer.add_scalar("epoch/val_loss_conf_noobj", val_losses["conf_noobj"], epoch)
+    writer.add_scalar("epoch/val_loss_class", val_losses["class"], epoch)
+
+    # Log learning rate
+    writer.add_scalar("epoch/learning_rate", learning_rate, epoch)
+
+    # Log mAP metrics if computed
+    if "mAP50:95" in val_losses:
+        writer.add_scalar("epoch/mAP50:95", val_losses["mAP50:95"], epoch)
+        writer.add_scalar("epoch/mAP50", val_losses["mAP50"], epoch)
+        writer.add_scalar("epoch/mAP75", val_losses["mAP75"], epoch)
+        writer.add_scalar("epoch/precision", val_losses["precision"], epoch)
+        writer.add_scalar("epoch/recall", val_losses["recall"], epoch)
+
+        # Log size-based metrics if available
+        if "mAP50:95_small" in val_losses:
+            writer.add_scalar(
+                "epoch/mAP50:95_small", val_losses["mAP50:95_small"], epoch
+            )
+        if "mAP50:95_medium" in val_losses:
+            writer.add_scalar(
+                "epoch/mAP50:95_medium", val_losses["mAP50:95_medium"], epoch
+            )
+        if "mAP50:95_large" in val_losses:
+            writer.add_scalar(
+                "epoch/mAP50:95_large", val_losses["mAP50:95_large"], epoch
+            )
+
+
+def log_hyperparameters(
+    writer: SummaryWriter,
+    hparams: dict,
+    final_metrics: dict[str, float],
+) -> None:
+    """Log hyperparameters and final metrics to TensorBoard.
+
+    Args:
+        writer: TensorBoard SummaryWriter instance
+        hparams: Dictionary containing hyperparameter values
+        final_metrics: Dictionary containing final metric values
+    """
+    if writer is None:
+        return
+
+    metric_dict = {
+        "hparam/best_val_loss": final_metrics["best_val_loss"],
+        "hparam/final_train_loss": final_metrics["final_train_loss"],
+    }
+    if "best_mAP50:95" in final_metrics:
+        metric_dict["hparam/best_mAP50:95"] = final_metrics["best_mAP50:95"]
+
+    writer.add_hparams(hparams, metric_dict)
+
+
+# ============================================================================
 # Training Functions
 # ============================================================================
 
@@ -214,17 +438,7 @@ def train_epoch(
             )
 
             # Log batch losses to TensorBoard
-            if writer is not None:
-                global_step = (epoch - 1) * len(dataloader) + batch_idx
-                writer.add_scalar("batch/loss_total", loss_dict["total"], global_step)
-                writer.add_scalar("batch/loss_coord", loss_dict["coord"], global_step)
-                writer.add_scalar(
-                    "batch/loss_conf_obj", loss_dict["conf_obj"], global_step
-                )
-                writer.add_scalar(
-                    "batch/loss_conf_noobj", loss_dict["conf_noobj"], global_step
-                )
-                writer.add_scalar("batch/loss_class", loss_dict["class"], global_step)
+            log_batch_metrics(writer, loss_dict, epoch, batch_idx, len(dataloader))
 
             start_time = time.time()
 
@@ -397,101 +611,42 @@ def train(
         print(f"Learning rate: {current_lr:.6f}")
 
         # Log epoch metrics to TensorBoard
-        if writer is not None:
-            writer.add_scalar("epoch/train_loss_total", train_losses["total"], epoch)
-            writer.add_scalar("epoch/train_loss_coord", train_losses["coord"], epoch)
-            writer.add_scalar(
-                "epoch/train_loss_conf_obj", train_losses["conf_obj"], epoch
-            )
-            writer.add_scalar(
-                "epoch/train_loss_conf_noobj", train_losses["conf_noobj"], epoch
-            )
-            writer.add_scalar("epoch/train_loss_class", train_losses["class"], epoch)
-
-            writer.add_scalar("epoch/val_loss_total", val_losses["total"], epoch)
-            writer.add_scalar("epoch/val_loss_coord", val_losses["coord"], epoch)
-            writer.add_scalar("epoch/val_loss_conf_obj", val_losses["conf_obj"], epoch)
-            writer.add_scalar(
-                "epoch/val_loss_conf_noobj", val_losses["conf_noobj"], epoch
-            )
-            writer.add_scalar("epoch/val_loss_class", val_losses["class"], epoch)
-
-            writer.add_scalar("epoch/learning_rate", current_lr, epoch)
-
-            # Log mAP metrics if computed
-            if "mAP50:95" in val_losses:
-                writer.add_scalar("epoch/mAP50:95", val_losses["mAP50:95"], epoch)
-                writer.add_scalar("epoch/mAP50", val_losses["mAP50"], epoch)
-                writer.add_scalar("epoch/mAP75", val_losses["mAP75"], epoch)
-                writer.add_scalar("epoch/precision", val_losses["precision"], epoch)
-                writer.add_scalar("epoch/recall", val_losses["recall"], epoch)
-
-                # Log size-based metrics if available
-                if "mAP50:95_small" in val_losses:
-                    writer.add_scalar(
-                        "epoch/mAP50:95_small", val_losses["mAP50:95_small"], epoch
-                    )
-                if "mAP50:95_medium" in val_losses:
-                    writer.add_scalar(
-                        "epoch/mAP50:95_medium", val_losses["mAP50:95_medium"], epoch
-                    )
-                if "mAP50:95_large" in val_losses:
-                    writer.add_scalar(
-                        "epoch/mAP50:95_large", val_losses["mAP50:95_large"], epoch
-                    )
+        log_epoch_metrics(writer, train_losses, val_losses, current_lr, epoch)
 
         # Save checkpoint
         if epoch % save_frequency == 0:
             checkpoint_path = checkpoint_dir / f"yolo_epoch_{epoch}.pth"
-            checkpoint_data = {
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dict": scheduler.state_dict(),
-                "train_loss": train_losses["total"],
-                "val_loss": val_losses["total"],
-            }
-            if "mAP50:95" in val_losses:
-                checkpoint_data["mAP50:95"] = val_losses["mAP50:95"]
-                checkpoint_data["mAP50"] = val_losses["mAP50"]
-                checkpoint_data["mAP75"] = val_losses["mAP75"]
-
-            torch.save(checkpoint_data, checkpoint_path)
-            print_checkpoint_saved(checkpoint_path)
+            save_checkpoint(
+                checkpoint_path,
+                epoch,
+                model,
+                optimizer,
+                scheduler,
+                train_losses,
+                val_losses,
+            )
 
         # Save best model (by validation loss)
         if val_losses["total"] < best_val_loss:
             best_val_loss = val_losses["total"]
             best_model_path = checkpoint_dir / "yolo_best.pth"
-            checkpoint_data = {
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "val_loss": val_losses["total"],
-            }
-            if "mAP50:95" in val_losses:
-                checkpoint_data["mAP50:95"] = val_losses["mAP50:95"]
-                checkpoint_data["mAP50"] = val_losses["mAP50"]
-                checkpoint_data["mAP75"] = val_losses["mAP75"]
-
-            torch.save(checkpoint_data, best_model_path)
-            print_checkpoint_saved(best_model_path, "val_loss", best_val_loss)
+            save_best_model(
+                best_model_path,
+                epoch,
+                model,
+                optimizer,
+                val_losses,
+                "val_loss",
+                best_val_loss,
+            )
 
         # Track best mAP (using mAP50:95 as the primary metric)
         if "mAP50:95" in val_losses and val_losses["mAP50:95"] > best_map:
             best_map = val_losses["mAP50:95"]
             best_map_path = checkpoint_dir / "yolo_best_map.pth"
-            checkpoint_data = {
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "val_loss": val_losses["total"],
-                "mAP50:95": val_losses["mAP50:95"],
-                "mAP50": val_losses["mAP50"],
-                "mAP75": val_losses["mAP75"],
-            }
-            torch.save(checkpoint_data, best_map_path)
-            print_checkpoint_saved(best_map_path, "mAP@0.5:0.95", best_map)
+            save_best_map_model(
+                best_map_path, epoch, model, optimizer, val_losses, best_map
+            )
 
         # Update final training loss
         final_train_loss = train_losses["total"]
@@ -694,14 +849,7 @@ def run_training(args):
         )
 
         # Log hyperparameters with final metrics to TensorBoard
-        if writer is not None:
-            metric_dict = {
-                "hparam/best_val_loss": final_metrics["best_val_loss"],
-                "hparam/final_train_loss": final_metrics["final_train_loss"],
-            }
-            if "best_mAP50:95" in final_metrics:
-                metric_dict["hparam/best_mAP50:95"] = final_metrics["best_mAP50:95"]
-            writer.add_hparams(hparams, metric_dict)
+        log_hyperparameters(writer, hparams, final_metrics)
 
     finally:
         # Close TensorBoard writer
@@ -744,9 +892,6 @@ def main(
 
     All training arguments are passed as function parameters to work with Modal's CLI.
     """
-    # Create args namespace from parameters
-    import argparse
-
     # Parse lr_decay_epochs from comma-separated string to list of ints
     lr_decay_epochs_list = [int(x.strip()) for x in lr_decay_epochs.split(",")]
 
