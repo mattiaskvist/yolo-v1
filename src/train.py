@@ -702,9 +702,9 @@ model_volume = modal.Volume.from_name("yolo-checkpoints", create_if_missing=True
 MODEL_DIR = Path("/models")
 
 MINUTES = 60
-HOURS = 12
+HOURS = 20
 TRAIN_GPU_COUNT = 1
-TRAIN_GPU = f"T4:{TRAIN_GPU_COUNT}"
+TRAIN_GPU = f"L4:{TRAIN_GPU_COUNT}"
 
 app = modal.App(
     name="yolo-v1-train",
