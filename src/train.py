@@ -613,7 +613,19 @@ def train(
         # Log epoch metrics to TensorBoard
         log_epoch_metrics(writer, train_losses, val_losses, current_lr, epoch)
 
-        # Save checkpoint
+        # Always save latest checkpoint after every epoch
+        latest_checkpoint_path = checkpoint_dir / "yolo_latest.pth"
+        save_checkpoint(
+            latest_checkpoint_path,
+            epoch,
+            model,
+            optimizer,
+            scheduler,
+            train_losses,
+            val_losses,
+        )
+
+        # Save checkpoint at specified frequency
         if epoch % save_frequency == 0:
             checkpoint_path = checkpoint_dir / f"yolo_epoch_{epoch}.pth"
             save_checkpoint(
