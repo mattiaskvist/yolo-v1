@@ -167,13 +167,21 @@ def validate(
             dataloader=dataloader,
             device=device,
             num_classes=num_classes,
-            iou_threshold=0.5,
+            iou_thresholds=None,  # Use default 0.5:0.95 range
             conf_threshold=0.01,
             nms_threshold=0.4,
         )
-        results["mAP"] = map_results["mAP"]
+        # Add all mAP metrics to results
+        results["mAP50:95"] = map_results["mAP50:95"]
+        results["mAP50"] = map_results["mAP50"]
+        results["mAP75"] = map_results["mAP75"]
         results["precision"] = map_results["precision"]
         results["recall"] = map_results["recall"]
+
+        # Add size-based metrics if available
+        for key in ["mAP50:95_small", "mAP50:95_medium", "mAP50:95_large"]:
+            if key in map_results:
+                results[key] = map_results[key]
 
     return results
 
@@ -253,10 +261,20 @@ def train(
         print(f"  Class: {val_losses['class']:.4f}")
 
         # Print mAP metrics if computed
-        if "mAP" in val_losses:
-            print(f"  mAP@0.5: {val_losses['mAP']:.4f}")
+        if "mAP50:95" in val_losses:
+            print(f"  mAP@0.5:0.95: {val_losses['mAP50:95']:.4f}")
+            print(f"  mAP@0.5: {val_losses['mAP50']:.4f}")
+            print(f"  mAP@0.75: {val_losses['mAP75']:.4f}")
             print(f"  Precision: {val_losses['precision']:.4f}")
             print(f"  Recall: {val_losses['recall']:.4f}")
+
+            # Print size-based metrics if available
+            if "mAP50:95_small" in val_losses:
+                print(f"  mAP@0.5:0.95 (small): {val_losses['mAP50:95_small']:.4f}")
+            if "mAP50:95_medium" in val_losses:
+                print(f"  mAP@0.5:0.95 (medium): {val_losses['mAP50:95_medium']:.4f}")
+            if "mAP50:95_large" in val_losses:
+                print(f"  mAP@0.5:0.95 (large): {val_losses['mAP50:95_large']:.4f}")
 
         # Learning rate step
         scheduler.step()
@@ -286,10 +304,26 @@ def train(
             writer.add_scalar("epoch/learning_rate", current_lr, epoch)
 
             # Log mAP metrics if computed
-            if "mAP" in val_losses:
-                writer.add_scalar("epoch/mAP", val_losses["mAP"], epoch)
+            if "mAP50:95" in val_losses:
+                writer.add_scalar("epoch/mAP50:95", val_losses["mAP50:95"], epoch)
+                writer.add_scalar("epoch/mAP50", val_losses["mAP50"], epoch)
+                writer.add_scalar("epoch/mAP75", val_losses["mAP75"], epoch)
                 writer.add_scalar("epoch/precision", val_losses["precision"], epoch)
                 writer.add_scalar("epoch/recall", val_losses["recall"], epoch)
+
+                # Log size-based metrics if available
+                if "mAP50:95_small" in val_losses:
+                    writer.add_scalar(
+                        "epoch/mAP50:95_small", val_losses["mAP50:95_small"], epoch
+                    )
+                if "mAP50:95_medium" in val_losses:
+                    writer.add_scalar(
+                        "epoch/mAP50:95_medium", val_losses["mAP50:95_medium"], epoch
+                    )
+                if "mAP50:95_large" in val_losses:
+                    writer.add_scalar(
+                        "epoch/mAP50:95_large", val_losses["mAP50:95_large"], epoch
+                    )
 
         # Save checkpoint
         if epoch % save_frequency == 0:
@@ -302,8 +336,10 @@ def train(
                 "train_loss": train_losses["total"],
                 "val_loss": val_losses["total"],
             }
-            if "mAP" in val_losses:
-                checkpoint_data["mAP"] = val_losses["mAP"]
+            if "mAP50:95" in val_losses:
+                checkpoint_data["mAP50:95"] = val_losses["mAP50:95"]
+                checkpoint_data["mAP50"] = val_losses["mAP50"]
+                checkpoint_data["mAP75"] = val_losses["mAP75"]
 
             torch.save(checkpoint_data, checkpoint_path)
             print(f"Checkpoint saved to {checkpoint_path}")
@@ -318,27 +354,33 @@ def train(
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_loss": val_losses["total"],
             }
-            if "mAP" in val_losses:
-                checkpoint_data["mAP"] = val_losses["mAP"]
+            if "mAP50:95" in val_losses:
+                checkpoint_data["mAP50:95"] = val_losses["mAP50:95"]
+                checkpoint_data["mAP50"] = val_losses["mAP50"]
+                checkpoint_data["mAP75"] = val_losses["mAP75"]
 
             torch.save(checkpoint_data, best_model_path)
             print(
                 f"Best model saved to {best_model_path} (val_loss: {best_val_loss:.4f})"
             )
 
-        # Track best mAP
-        if "mAP" in val_losses and val_losses["mAP"] > best_map:
-            best_map = val_losses["mAP"]
+        # Track best mAP (using mAP50:95 as the primary metric)
+        if "mAP50:95" in val_losses and val_losses["mAP50:95"] > best_map:
+            best_map = val_losses["mAP50:95"]
             best_map_path = checkpoint_dir / "yolo_best_map.pth"
             checkpoint_data = {
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_loss": val_losses["total"],
-                "mAP": val_losses["mAP"],
+                "mAP50:95": val_losses["mAP50:95"],
+                "mAP50": val_losses["mAP50"],
+                "mAP75": val_losses["mAP75"],
             }
             torch.save(checkpoint_data, best_map_path)
-            print(f"Best mAP model saved to {best_map_path} (mAP: {best_map:.4f})")
+            print(
+                f"Best mAP model saved to {best_map_path} (mAP@0.5:0.95: {best_map:.4f})"
+            )
 
         # Update final training loss
         final_train_loss = train_losses["total"]
@@ -349,7 +391,7 @@ def train(
         "final_train_loss": final_train_loss,
     }
     if best_map > 0:
-        results["best_mAP"] = best_map
+        results["best_mAP50:95"] = best_map
 
     return results
 
@@ -385,19 +427,8 @@ app = modal.App(
 )
 
 
-@app.function(
-    gpu=TRAIN_GPU,
-    timeout=60 * MINUTES * HOURS,
-    secrets=[
-        modal.Secret.from_name("KAGGLE_USERNAME", required_keys=["KAGGLE_USERNAME"]),
-        modal.Secret.from_name("KAGGLE_KEY", required_keys=["KAGGLE_KEY"]),
-    ],
-)
-def main():
-    # make sure volumes are synced
-    model_volume.reload()
-    kaggle_volume.reload()
-
+def parse_args():
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Train YOLO v1 with ResNet backbone")
 
     # Data
@@ -519,7 +550,34 @@ def main():
         help="Download the VOC dataset from Kaggle (recommended - fast and reliable)",
     )
 
-    args = parser.parse_args()
+    # Modal
+    parser.add_argument(
+        "--remote",
+        action="store_true",
+        help="Run training remotely on Modal",
+    )
+
+    return parser.parse_args()
+
+
+@app.function(
+    gpu=TRAIN_GPU,
+    timeout=60 * MINUTES * HOURS,
+    secrets=[
+        modal.Secret.from_name("KAGGLE_USERNAME", required_keys=["KAGGLE_USERNAME"]),
+        modal.Secret.from_name("KAGGLE_KEY", required_keys=["KAGGLE_KEY"]),
+    ],
+)
+@app.local_entrypoint()
+def run_training(args):
+    """Execute the training pipeline with the given arguments.
+
+    Args:
+        args: Parsed command line arguments from parse_args()
+    """
+    # Make sure volumes are synced (Modal-specific)
+    model_volume.reload()
+    kaggle_volume.reload()
 
     # Create checkpoint directory
     checkpoint_dir = Path(args.checkpoint_dir)
@@ -682,8 +740,8 @@ def main():
                 "hparam/best_val_loss": final_metrics["best_val_loss"],
                 "hparam/final_train_loss": final_metrics["final_train_loss"],
             }
-            if "best_mAP" in final_metrics:
-                metric_dict["hparam/best_mAP"] = final_metrics["best_mAP"]
+            if "best_mAP50:95" in final_metrics:
+                metric_dict["hparam/best_mAP50:95"] = final_metrics["best_mAP50:95"]
             writer.add_hparams(hparams, metric_dict)
 
     finally:
@@ -694,6 +752,18 @@ def main():
                 print(f"\nTensorBoard logs saved to: {log_dir}")
 
     print("\nTraining completed!")
+
+
+def main():
+    """Main entry point for local execution.
+
+    Parses arguments and runs the training pipeline.
+    """
+    args = parse_args()
+    if args.remote:
+        run_training.remote(args)
+    else:
+        run_training.local(args)
 
 
 if __name__ == "__main__":
