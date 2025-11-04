@@ -1,14 +1,16 @@
 """Wrapper for torchvision's VOCDetection dataset to work with YOLO v1."""
 
+import bisect
+import itertools
+import os
 from pathlib import Path
 from typing import Tuple
 
 import torch
-from torch.utils.data import Dataset
-from torchvision.datasets import VOCDetection
-from torchvision import transforms
 import torchvision.transforms.v2 as v2
-from torchvision import tv_tensors
+from torch.utils.data import Dataset
+from torchvision import transforms, tv_tensors
+from torchvision.datasets import VOCDetection
 
 
 class VOCDetectionYOLO(Dataset):
@@ -234,9 +236,49 @@ class VOCDetectionYOLO(Dataset):
 
         # Convert root to Path if it's a string
         root = Path(root)
+
+        # Construct proper path for torchvision's VOCDetection
+        # torchvision expects: root/VOCdevkit/VOC{year}/
+        if base_year == "2007":
+            # VOC 2007: point to parent of VOCdevkit
+            voc_root = root / self.split_paths[base_year][image_set]
+        else:  # 2012
+            # VOC 2012: ensure proper directory structure for torchvision
+            # Kaggle structure: root/VOC2012/Annotations...
+            # torchvision expects: root/VOCdevkit/VOC2012/Annotations...
+            voc_root = root
+            vocdevkit_path = voc_root / "VOCdevkit"
+            voc2012_path = voc_root / "VOC2012"
+            vocdevkit_voc2012_symlink = vocdevkit_path / "VOC2012"
+
+            if voc2012_path.exists():
+                # Create VOCdevkit directory if needed
+                if not vocdevkit_path.exists():
+                    vocdevkit_path.mkdir(parents=True, exist_ok=True)
+
+                # Remove old symlink if VOCdevkit itself is a symlink
+                if vocdevkit_path.is_symlink():
+                    vocdevkit_path.unlink()
+                    vocdevkit_path.mkdir(parents=True, exist_ok=True)
+
+                # Remove broken symlink inside VOCdevkit
+                if (
+                    vocdevkit_voc2012_symlink.is_symlink()
+                    and not vocdevkit_voc2012_symlink.exists()
+                ):
+                    vocdevkit_voc2012_symlink.unlink()
+
+                # Create symlink if it doesn't exist
+                if not vocdevkit_voc2012_symlink.exists():
+                    os.symlink(voc2012_path, vocdevkit_voc2012_symlink)
+            else:
+                raise FileNotFoundError(
+                    f"VOC2012 directory not found at {voc2012_path}"
+                )
+
         # Create the underlying VOCDetection dataset
         self.voc_dataset = VOCDetection(
-            root=root / self.split_paths[base_year][image_set],
+            root=voc_root,
             year=year,
             image_set=image_set,
             download=download,  # This will be False if Kaggle download succeeded
@@ -544,3 +586,134 @@ class VOCDetectionYOLO(Dataset):
             "class_ids": class_ids,
             "class_names": [self.class_names[cid] for cid in class_ids],
         }
+
+
+class CombinedVOCDataset(Dataset):
+    """
+    Combine multiple VOC datasets (different years/splits) into a single dataset.
+
+    This is useful for training on multiple datasets simultaneously, e.g.,
+    VOC 2007 trainval + VOC 2012 train.
+
+    Args:
+        datasets: List of VOCDetectionYOLO datasets to combine
+
+    Example:
+        >>> # Combine VOC 2007 trainval and VOC 2012 train
+        >>> voc2007 = VOCDetectionYOLO(year="2007", image_set="trainval", download=True)
+        >>> voc2012 = VOCDetectionYOLO(year="2012", image_set="train", download=True)
+        >>> combined = CombinedVOCDataset([voc2007, voc2012])
+        >>> print(f"Total samples: {len(combined)}")
+    """
+
+    def __init__(self, datasets: list):
+        """Initialize combined dataset.
+
+        Args:
+            datasets: List of VOCDetectionYOLO dataset instances to combine
+        """
+        self.datasets = datasets
+        self.lengths = [len(ds) for ds in datasets]
+        self.cumulative_lengths = [0] + list(itertools.accumulate(self.lengths))
+
+        # Verify all datasets have the same grid and class configuration
+        if datasets:
+            self.S = datasets[0].S
+            self.B = datasets[0].B
+            self.C = datasets[0].C
+            self.class_names = datasets[0].class_names
+            self.class_to_idx = datasets[0].class_to_idx
+
+            for ds in datasets[1:]:
+                assert ds.S == self.S, (
+                    f"All datasets must have same S (grid size): {self.S} != {ds.S}"
+                )
+                assert ds.B == self.B, (
+                    f"All datasets must have same B (boxes per cell): {self.B} != {ds.B}"
+                )
+                assert ds.C == self.C, (
+                    f"All datasets must have same C (num classes): {self.C} != {ds.C}"
+                )
+
+    def __len__(self) -> int:
+        """Return total number of samples across all datasets."""
+        return sum(self.lengths)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get sample from the appropriate dataset.
+
+        Args:
+            idx: Global sample index
+
+        Returns:
+            Tuple of (image, target) from the appropriate dataset
+        """
+        # Find which dataset this index belongs to
+        dataset_idx = bisect.bisect_right(self.cumulative_lengths, idx) - 1
+
+        # Get local index within that dataset
+        local_idx = idx - self.cumulative_lengths[dataset_idx]
+
+        # Return sample from appropriate dataset
+        return self.datasets[dataset_idx][local_idx]
+
+
+def create_voc_datasets(
+    years_and_splits: list[tuple[str, str]],
+    download: bool = True,
+    S: int = 7,
+    B: int = 2,
+    target_size: Tuple[int, int] = (448, 448),
+    augment: bool = True,
+    root: str | Path = None,
+) -> Dataset:
+    """
+    Create a combined VOC dataset from multiple years and splits.
+
+    Args:
+        years_and_splits: List of (year, image_set) tuples, e.g., [("2007", "trainval"), ("2012", "train")]
+        download: Whether to download datasets if not present
+        S: Grid size
+        B: Number of bounding boxes per cell
+        target_size: Target image size
+        augment: Whether to apply data augmentation
+        root: Root directory for datasets (optional)
+
+    Returns:
+        Combined dataset if multiple datasets specified, single dataset otherwise
+
+    Example:
+        >>> # Create combined training set: VOC 2007 trainval + VOC 2012 train
+        >>> train_dataset = create_voc_datasets(
+        ...     years_and_splits=[("2007", "trainval"), ("2012", "train")],
+        ...     download=True,
+        ...     augment=True
+        ... )
+        >>>
+        >>> # Create validation set: VOC 2012 val
+        >>> val_dataset = create_voc_datasets(
+        ...     years_and_splits=[("2012", "val")],
+        ...     download=True,
+        ...     augment=False
+        ... )
+    """
+    datasets = []
+
+    for year, image_set in years_and_splits:
+        dataset = VOCDetectionYOLO(
+            root=root,
+            year=year,
+            image_set=image_set,
+            download=download,
+            S=S,
+            B=B,
+            target_size=target_size,
+            augment=augment,
+        )
+        datasets.append(dataset)
+
+    # Return single dataset if only one, otherwise combine
+    if len(datasets) == 1:
+        return datasets[0]
+    else:
+        return CombinedVOCDataset(datasets)

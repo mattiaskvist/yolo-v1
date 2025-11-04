@@ -1,5 +1,11 @@
 # YOLO v1
 
-uv run modal run --detach -m src.train
+## Training
 
-uv run modal run src/train.py
+```bash
+# Start training locally
+uv run modal run src/train.py --epochs 135
+
+# Resume from latest checkpoint and train remotely on Modal, make sure to resume if we get evicted
+uv run modal run -d src/train.py --resume true --epochs 135 --remote --device cuda
+```
