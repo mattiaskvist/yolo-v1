@@ -45,7 +45,7 @@ def main():
     parser.add_argument(
         "--image-set",
         type=str,
-        default="val",
+        default="test",
         help="Image set to evaluate on (train, val, trainval, test). For single dataset evaluation.",
     )
     parser.add_argument(
