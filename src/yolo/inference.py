@@ -181,18 +181,39 @@ class YOLOInference:
 
 # Example usage
 if __name__ == "__main__":
-    from yolo.models import YOLOv1, YOLOv1ResNet  # noqa: F401
+    from yolo.models import YOLOv1, ResNetBackbone
 
-    # model = YOLOv1(num_classes=20)
-    model = YOLOv1ResNet(num_classes=20, freeze_backbone=True)
+    checkpoint_path = "checkpoints/yolo_best.pth"
+    device = (
+        "mps"
+        if torch.backends.mps.is_available()
+        else "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
 
-    inference = YOLOInference(model)
+    model = YOLOv1(
+        num_classes=20, backbone=ResNetBackbone(pretrained=True, freeze=True)
+    )
+    # Load checkpoint
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location=torch.device(device),
+    )
 
-    # Replace 'path/to/image.jpg' with the actual path to your test image
+    # Load model weights
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+    model.to(device)
+
+    # Create inference engine
+    inference = YOLOInference(model, device=device)
+
+    # Run prediction on sample image
     detections = inference.predict(
-        "path/to/image.jpg",
-        conf_threshold=0.5,  # typical confidence threshold
-        nms_threshold=0.4,  # standard nms threshold for object detection
+        "notebooks/sample.jpg",
+        conf_threshold=0.4,
+        nms_threshold=0.4,
     )
     print(f"Found {len(detections)} objects")
     for det in detections:
