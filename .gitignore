@@ -214,3 +214,5 @@ checkpoints/
 runs/
 
 *media/
+.DS_Store
+create_prediction_grid.py

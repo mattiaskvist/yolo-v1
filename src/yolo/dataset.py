@@ -14,8 +14,7 @@ from torchvision.datasets import VOCDetection
 
 
 class VOCDetectionYOLO(Dataset):
-    """
-    Wrapper around torchvision's VOCDetection that converts annotations to YOLO format.
+    """Wrapper around torchvision's VOCDetection that converts annotations to YOLO format.
 
     This class uses torchvision's built-in VOCDetection dataset and transforms
     the annotations into the YOLO v1 target format (S x S x (5*B + C)).
@@ -47,6 +46,7 @@ class VOCDetectionYOLO(Dataset):
         ...     image_set="train",
         ...     download=True
         ... )
+
     """  # Pascal VOC class names (20 classes)
 
     VOC_CLASSES = [
@@ -92,8 +92,7 @@ class VOCDetectionYOLO(Dataset):
         year: str = "2007",
         verbose: bool = True,
     ) -> Path | None:
-        """
-        Download Pascal VOC dataset from Kaggle using kagglehub.
+        """Download Pascal VOC dataset from Kaggle using kagglehub.
 
         This is a convenience method that downloads the dataset from Kaggle,
         which is often faster and more reliable than the official source.
@@ -112,6 +111,7 @@ class VOCDetectionYOLO(Dataset):
         Example:
             >>> root = VOCDetectionYOLO.download_from_kaggle(year="2007")
             >>> dataset = VOCDetectionYOLO(root=root, year="2007", image_set="train")
+
         """
         # Map year to Kaggle dataset
         kaggle_datasets = {
@@ -169,8 +169,7 @@ class VOCDetectionYOLO(Dataset):
         target_size: Tuple[int, int] = (448, 448),
         augment: bool = True,
     ):
-        """
-        Initialize VOCDetectionYOLO dataset.
+        """Initialize VOCDetectionYOLO dataset.
 
         Args:
             data_root: Root directory of the VOC dataset (used if download=False)
@@ -182,6 +181,7 @@ class VOCDetectionYOLO(Dataset):
             transform: Optional image transformations
             target_size: Target image size (width, height)
             augment: Whether to apply data augmentation (only for training)
+
         """
         self.S = S
         self.B = B
@@ -286,8 +286,7 @@ class VOCDetectionYOLO(Dataset):
         )
 
     def _get_augmentation_transforms(self):
-        """
-        Get augmentation transforms as specified in YOLO v1 paper.
+        """Get augmentation transforms as specified in YOLO v1 paper.
 
         Implements:
         - Random scaling and translation up to 20% of original image size
@@ -324,8 +323,7 @@ class VOCDetectionYOLO(Dataset):
         return len(self.voc_dataset)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Get a sample from the dataset.
+        """Get a sample from the dataset.
 
         Args:
             idx: Sample index
@@ -334,6 +332,7 @@ class VOCDetectionYOLO(Dataset):
             Tuple of (image, target)
             - image: Preprocessed image tensor of shape (3, H, W)
             - target: Target tensor of shape (S, S, 5*B + C)
+
         """
         # Get image and annotation from VOCDetection
         image, annotation = self.voc_dataset[idx]
@@ -410,8 +409,7 @@ class VOCDetectionYOLO(Dataset):
         return image, target
 
     def _extract_bboxes_from_annotation(self, annotation: dict) -> Tuple[list, list]:
-        """
-        Extract bounding boxes and class IDs from VOC annotation.
+        """Extract bounding boxes and class IDs from VOC annotation.
 
         Args:
             annotation: VOC annotation dictionary
@@ -420,6 +418,7 @@ class VOCDetectionYOLO(Dataset):
             Tuple of (bboxes, class_ids)
             - bboxes: List of normalized bounding boxes [x_center, y_center, width, height]
             - class_ids: List of class IDs
+
         """
         # Extract image size
         size = annotation["annotation"]["size"]
@@ -468,14 +467,14 @@ class VOCDetectionYOLO(Dataset):
         return bboxes, class_ids
 
     def _parse_voc_annotation(self, annotation: dict) -> torch.Tensor:
-        """
-        Parse VOC annotation dictionary and convert to YOLO target format.
+        """Parse VOC annotation dictionary and convert to YOLO target format.
 
         Args:
             annotation: VOC annotation dictionary from torchvision
 
         Returns:
             Target tensor of shape (S, S, 5*B + C)
+
         """
         # Extract bboxes and class IDs
         bboxes, class_ids = self._extract_bboxes_from_annotation(annotation)
@@ -490,8 +489,7 @@ class VOCDetectionYOLO(Dataset):
         bboxes: list,
         class_ids: list,
     ) -> torch.Tensor:
-        """
-        Encode bounding boxes and classes into YOLO target format.
+        """Encode bounding boxes and classes into YOLO target format.
 
         Args:
             bboxes: List of normalized bounding boxes [x_center, y_center, width, height]
@@ -499,6 +497,7 @@ class VOCDetectionYOLO(Dataset):
 
         Returns:
             Target tensor of shape (S, S, 5*B + C)
+
         """
         # Initialize target tensor: (S, S, 5*B + C)
         target = torch.zeros((self.S, self.S, 5 * self.B + self.C))
@@ -533,14 +532,14 @@ class VOCDetectionYOLO(Dataset):
         return target
 
     def visualize_sample(self, idx: int) -> dict:
-        """
-        Get sample information for visualization.
+        """Get sample information for visualization.
 
         Args:
             idx: Sample index
 
         Returns:
             Dictionary containing image path, bboxes, and class names
+
         """
         # Get annotation from VOCDetection
         _, annotation = self.voc_dataset[idx]
@@ -589,8 +588,7 @@ class VOCDetectionYOLO(Dataset):
 
 
 class CombinedVOCDataset(Dataset):
-    """
-    Combine multiple VOC datasets (different years/splits) into a single dataset.
+    """Combine multiple VOC datasets (different years/splits) into a single dataset.
 
     This is useful for training on multiple datasets simultaneously, e.g.,
     VOC 2007 trainval + VOC 2012 train.
@@ -604,6 +602,7 @@ class CombinedVOCDataset(Dataset):
         >>> voc2012 = VOCDetectionYOLO(year="2012", image_set="train", download=True)
         >>> combined = CombinedVOCDataset([voc2007, voc2012])
         >>> print(f"Total samples: {len(combined)}")
+
     """
 
     def __init__(self, datasets: list):
@@ -611,6 +610,7 @@ class CombinedVOCDataset(Dataset):
 
         Args:
             datasets: List of VOCDetectionYOLO dataset instances to combine
+
         """
         self.datasets = datasets
         self.lengths = [len(ds) for ds in datasets]
@@ -647,6 +647,7 @@ class CombinedVOCDataset(Dataset):
 
         Returns:
             Tuple of (image, target) from the appropriate dataset
+
         """
         # Find which dataset this index belongs to
         dataset_idx = bisect.bisect_right(self.cumulative_lengths, idx) - 1
@@ -667,8 +668,7 @@ def create_voc_datasets(
     augment: bool = True,
     root: str | Path = None,
 ) -> Dataset:
-    """
-    Create a combined VOC dataset from multiple years and splits.
+    """Create a combined VOC dataset from multiple years and splits.
 
     Args:
         years_and_splits: List of (year, image_set) tuples, e.g., [("2007", "trainval"), ("2012", "train")]
@@ -696,6 +696,7 @@ def create_voc_datasets(
         ...     download=True,
         ...     augment=False
         ... )
+
     """
     datasets = []
 

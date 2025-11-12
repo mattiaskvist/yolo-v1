@@ -1,5 +1,4 @@
-"""
-Mean Average Precision (mAP) metrics for object detection evaluation.
+"""Mean Average Precision (mAP) metrics for object detection evaluation.
 
 This module implements mAP calculation following the PASCAL VOC evaluation protocol.
 """
@@ -16,8 +15,7 @@ EPSILON = 1e-6  # Small value for numerical stability
 
 
 class mAPMetric:
-    """
-    Calculate mean Average Precision (mAP) for object detection.
+    """Calculate mean Average Precision (mAP) for object detection.
 
     Implements the PASCAL VOC evaluation protocol with configurable IoU thresholds.
     Supports multiple IoU thresholds for COCO-style evaluation (mAP50:95).
@@ -39,6 +37,7 @@ class mAPMetric:
         >>> print(f"mAP50:95: {results['mAP50:95']:.4f}")
         >>> print(f"mAP@0.5: {results['mAP50']:.4f}")
         >>> print(f"mAP@0.75: {results['mAP75']:.4f}")
+
     """
 
     def __init__(
@@ -77,12 +76,12 @@ class mAPMetric:
         self.all_ground_truths = []
 
     def update(self, predictions: torch.Tensor, targets: torch.Tensor):
-        """
-        Update metric with a batch of predictions and targets.
+        """Update metric with a batch of predictions and targets.
 
         Args:
             predictions: Model predictions of shape (batch, S, S, B*5 + C)
             targets: Ground truth targets of shape (batch, S, S, B*5 + C)
+
         """
         batch_size = predictions.shape[0]
 
@@ -101,8 +100,7 @@ class mAPMetric:
             self.all_ground_truths.append(gt_boxes)
 
     def compute(self) -> Dict[str, float]:
-        """
-        Compute mAP and per-class AP at multiple IoU thresholds.
+        """Compute mAP and per-class AP at multiple IoU thresholds.
 
         Returns:
             Dictionary containing:
@@ -114,6 +112,7 @@ class mAPMetric:
                 - 'AP50:95_class_X': Average AP across thresholds for class X
                 - 'precision': overall precision (at IoU 0.5)
                 - 'recall': overall recall (at IoU 0.5)
+
         """
         if len(self.all_predictions) == 0:
             return {
@@ -174,14 +173,14 @@ class mAPMetric:
     def _parse_predictions(
         self, pred: torch.Tensor
     ) -> List[Tuple[int, float, Tuple[float, float, float, float]]]:
-        """
-        Parse YOLO predictions into list of detections.
+        """Parse YOLO predictions into list of detections.
 
         Args:
             pred: Prediction tensor of shape (S, S, B*5 + C)
 
         Returns:
             List of (class_id, confidence, (x, y, w, h)) tuples
+
         """
         detections = []
 
@@ -221,14 +220,14 @@ class mAPMetric:
     def _parse_ground_truth(
         self, target: torch.Tensor
     ) -> List[Tuple[int, Tuple[float, float, float, float]]]:
-        """
-        Parse YOLO target into list of ground truth boxes.
+        """Parse YOLO target into list of ground truth boxes.
 
         Args:
             target: Target tensor of shape (S, S, B*5 + C)
 
         Returns:
             List of (class_id, (x, y, w, h)) tuples
+
         """
         gt_boxes = []
 
@@ -259,14 +258,14 @@ class mAPMetric:
     def _apply_nms(
         self, detections: List[Tuple[int, float, Tuple[float, float, float, float]]]
     ) -> List[Tuple[int, float, Tuple[float, float, float, float]]]:
-        """
-        Apply non-maximum suppression to filter overlapping boxes.
+        """Apply non-maximum suppression to filter overlapping boxes.
 
         Args:
             detections: List of (class_id, confidence, bbox) tuples
 
         Returns:
             Filtered list of detections
+
         """
         if len(detections) == 0:
             return []
@@ -301,8 +300,7 @@ class mAPMetric:
         box1: Tuple[float, float, float, float],
         box2: Tuple[float, float, float, float],
     ) -> float:
-        """
-        Calculate Intersection over Union between two boxes.
+        """Calculate Intersection over Union between two boxes.
 
         Args:
             box1: (x_center, y_center, width, height)
@@ -310,6 +308,7 @@ class mAPMetric:
 
         Returns:
             IoU value
+
         """
         x1, y1, w1, h1 = box1
         x2, y2, w2, h2 = box2
@@ -344,8 +343,7 @@ class mAPMetric:
     def _calculate_ap_for_class(
         self, class_id: int, iou_threshold: float
     ) -> Tuple[float, float, float]:
-        """
-        Calculate Average Precision for a specific class at a given IoU threshold.
+        """Calculate Average Precision for a specific class at a given IoU threshold.
 
         Args:
             class_id: Class ID to calculate AP for
@@ -353,6 +351,7 @@ class mAPMetric:
 
         Returns:
             Tuple of (AP, precision, recall)
+
         """
         # Collect all predictions and ground truths for this class
         class_predictions = []
@@ -443,14 +442,14 @@ class mAPMetric:
         return ap, final_precision, final_recall
 
     def _calculate_overall_metrics(self, iou_threshold: float) -> Tuple[float, float]:
-        """
-        Calculate overall precision and recall across all classes at a given IoU threshold.
+        """Calculate overall precision and recall across all classes at a given IoU threshold.
 
         Args:
             iou_threshold: IoU threshold for considering a detection as correct
 
         Returns:
             Tuple of (precision, recall)
+
         """
         total_tp = 0
         total_fp = 0
@@ -492,8 +491,7 @@ class mAPMetric:
         return precision, recall
 
     def _compute_size_based_metrics(self) -> Dict[str, float]:
-        """
-        Compute AP for small, medium, and large objects.
+        """Compute AP for small, medium, and large objects.
 
         Size categories (based on object area in normalized coordinates):
             - Small: area < 32²/448² ≈ 0.0051 (< 32x32 pixels at 448x448 resolution)
@@ -506,6 +504,7 @@ class mAPMetric:
 
         Returns:
             Dictionary containing size-based mAP metrics
+
         """
         # Define area thresholds (normalized coordinates, so area = w * h)
         # Following COCO-style thresholds: 32x32 and 96x96 pixels
@@ -572,8 +571,7 @@ class mAPMetric:
         iou_threshold: float,
         size_filtered_gts: List[Tuple[int, int, Tuple[float, float, float, float]]],
     ) -> float:
-        """
-        Calculate AP for a specific class considering only ground truths of a certain size.
+        """Calculate AP for a specific class considering only ground truths of a certain size.
 
         Args:
             class_id: Class ID to calculate AP for
@@ -582,6 +580,7 @@ class mAPMetric:
 
         Returns:
             Average Precision value
+
         """
         # Filter ground truths for this class
         class_gts = [
@@ -663,8 +662,7 @@ def evaluate_model(
     S: int = 7,
     B: int = 2,
 ) -> Dict[str, float]:
-    """
-    Evaluate a YOLO model on a dataset and compute mAP at multiple IoU thresholds.
+    """Evaluate a YOLO model on a dataset and compute mAP at multiple IoU thresholds.
 
     Args:
         model: YOLO model to evaluate
@@ -687,6 +685,7 @@ def evaluate_model(
         >>> print(f"mAP@0.75: {results['mAP75']:.4f}")
         >>> print(f"Precision: {results['precision']:.4f}")
         >>> print(f"Recall: {results['recall']:.4f}")
+
     """
     model.eval()
     metric = mAPMetric(
