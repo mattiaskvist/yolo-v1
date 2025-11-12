@@ -44,6 +44,7 @@ def train_epoch(
 
     Returns:
         Dictionary containing average losses for the epoch
+
     """
     model.train()
 
@@ -149,6 +150,7 @@ def validate(
 
     Returns:
         Dictionary containing validation metrics
+
     """
     model.eval()
 
@@ -259,8 +261,8 @@ def train(
 
     Returns:
         Dictionary containing final training metrics (best_val_loss, final_train_loss, etc.)
-    """
 
+    """
     best_val_loss = (
         best_val_loss_init if best_val_loss_init is not None else float("inf")
     )

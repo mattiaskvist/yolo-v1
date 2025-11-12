@@ -1,5 +1,4 @@
-"""
-Pydantic schemas for YOLO predictions and results.
+"""Pydantic schemas for YOLO predictions and results.
 """
 
 from pydantic import BaseModel, Field
@@ -18,11 +17,11 @@ class BoundingBox(BaseModel):
     height: float = Field(..., ge=0.0, le=1.0, description="Box height (normalized)")
 
     def to_corners(self) -> tuple[float, float, float, float]:
-        """
-        Convert center format to corner format.
+        """Convert center format to corner format.
 
         Returns:
             Tuple of (x1, y1, x2, y2) in normalized coordinates
+
         """
         x1 = self.x - self.width / 2
         y1 = self.y - self.height / 2
@@ -33,8 +32,7 @@ class BoundingBox(BaseModel):
     def to_pixel_coords(
         self, img_width: int, img_height: int
     ) -> tuple[int, int, int, int]:
-        """
-        Convert to pixel coordinates.
+        """Convert to pixel coordinates.
 
         Args:
             img_width: Image width in pixels
@@ -42,6 +40,7 @@ class BoundingBox(BaseModel):
 
         Returns:
             Tuple of (x1, y1, x2, y2) in pixel coordinates
+
         """
         x1, y1, x2, y2 = self.to_corners()
         return (
@@ -58,8 +57,7 @@ class BoundingBox(BaseModel):
 
     @classmethod
     def from_corners(cls, x1: float, y1: float, x2: float, y2: float) -> "BoundingBox":
-        """
-        Create BoundingBox from corner coordinates.
+        """Create BoundingBox from corner coordinates.
 
         Args:
             x1, y1: Top-left corner (normalized)
@@ -67,6 +65,7 @@ class BoundingBox(BaseModel):
 
         Returns:
             BoundingBox instance
+
         """
         width = x2 - x1
         height = y2 - y1

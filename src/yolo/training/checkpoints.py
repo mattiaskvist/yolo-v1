@@ -27,6 +27,7 @@ def save_checkpoint(
         scheduler: Learning rate scheduler to save
         train_losses: Dictionary containing training loss values
         val_losses: Dictionary containing validation loss and metric values
+
     """
     checkpoint_data = {
         "epoch": epoch,
@@ -64,6 +65,7 @@ def save_best_model(
         val_losses: Dictionary containing validation loss and metric values
         metric_name: Name of the metric being optimized (e.g., "val_loss", "mAP@0.5:0.95")
         metric_value: Value of the metric
+
     """
     checkpoint_data = {
         "epoch": epoch,
@@ -97,6 +99,7 @@ def save_best_map_model(
         optimizer: Optimizer to save
         val_losses: Dictionary containing validation loss and metric values
         map_value: mAP@0.5:0.95 value
+
     """
     checkpoint_data = {
         "epoch": epoch,

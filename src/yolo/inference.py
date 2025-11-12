@@ -10,6 +10,29 @@ EPSILON = 1e-6
 
 
 class YOLOInference:
+    """YOLO inference engine for running object detection on images.
+
+    Handles the complete inference pipeline: image loading, preprocessing,
+    model prediction, post-processing with NMS, and returning structured results.
+
+    Automatically selects the best available device (MPS for Apple Silicon,
+    CUDA for NVIDIA GPUs, or CPU fallback).
+
+    Attributes:
+        device: Computation device (mps/cuda/cpu).
+        model: YOLO model in evaluation mode.
+        transform: Image preprocessing transforms (resize, normalize).
+
+    Example:
+        >>> model = YOLOv1(num_classes=20)
+        >>> model.load_state_dict(checkpoint['model_state_dict'])
+        >>> inference = YOLOInference(model)
+        >>> detections = inference.predict("image.jpg", conf_threshold=0.25)
+        >>> for det in detections:
+        ...     print(f"{det.class_name}: {det.confidence:.2%}")
+
+    """
+
     def __init__(
         self,
         model: nn.Module,
@@ -19,6 +42,15 @@ class YOLOInference:
         if torch.cuda.is_available()
         else "cpu",
     ) -> None:
+        """Initialize the inference engine.
+
+        Args:
+            model: YOLO model to use for predictions. Should be a YOLOv1 instance
+                or compatible model with S, B attributes.
+            device: Device to run inference on. Auto-detects best device if not specified.
+                Options: 'mps' (Apple Silicon), 'cuda' (NVIDIA GPU), 'cpu'.
+
+        """
         self.device = device
         self.model = model.to(self.device)
         self.model.eval()
@@ -34,12 +66,35 @@ class YOLOInference:
         )
 
     def load_image(self, image_path: str) -> Image.Image:
-        """Load an image from the given path."""
+        """Load an image from disk.
+
+        Args:
+            image_path: Path to the image file. Supports common formats (JPEG, PNG, etc.).
+
+        Returns:
+            PIL Image in RGB format.
+
+        Raises:
+            FileNotFoundError: If image path does not exist.
+            PIL.UnidentifiedImageError: If file is not a valid image.
+
+        """
         image = Image.open(image_path).convert("RGB")
         return image
 
     def preprocess_image(self, image: Image.Image) -> torch.Tensor:
-        """Preprocess the image for model input."""
+        """Preprocess image for model input.
+
+        Applies resize to 448x448, converts to tensor, and normalizes using
+        ImageNet statistics.
+
+        Args:
+            image: PIL Image in RGB format.
+
+        Returns:
+            Preprocessed tensor of shape (1, 3, 448, 448) on the model's device.
+
+        """
         img_tensor = self.transform(image).unsqueeze(0).to(self.device)
         return img_tensor
 
@@ -50,8 +105,7 @@ class YOLOInference:
         nms_threshold: float = 0.4,
         class_names: list[str] | None = None,
     ) -> list[Detection]:
-        """
-        Predict objects in an image.
+        """Predict objects in an image.
 
         Args:
             image_path: Path to input image
@@ -66,6 +120,7 @@ class YOLOInference:
             >>> detections = inference.predict("image.jpg", class_names=VOC_CLASSES)
             >>> for det in detections:
             ...     print(f"{det.class_name}: {det.confidence:.2f}")
+
         """
         # Load and preprocess image
         image = self.load_image(image_path)
@@ -91,13 +146,26 @@ class YOLOInference:
     ) -> list[Detection]:
         """Parse YOLO output tensor into Detection objects.
 
+        Converts raw model predictions into structured Detection objects with
+        bounding boxes and class information. Filters predictions below the
+        confidence threshold.
+
+        For each grid cell, evaluates B bounding box predictions and their
+        confidence scores. Final confidence is the product of box confidence
+        and class probability.
+
         Args:
-            pred: Prediction tensor of shape (S, S, B*5 + C)
-            conf_threshold: Confidence threshold
-            class_names: Optional list of class names
+            pred: Prediction tensor of shape (S, S, B*5 + C) containing bounding
+                box predictions and class probabilities for each grid cell.
+            conf_threshold: Minimum confidence threshold for keeping detections.
+                Predictions below this value are filtered out.
+            class_names: Optional list of class names for labeling. If None,
+                uses generic 'class_N' labels.
 
         Returns:
-            List of Detection objects
+            List of Detection objects, each containing class_id, class_name,
+            confidence score, and bounding box in normalized coordinates.
+
         """
         S = self.model.S
         B = self.model.B
@@ -142,14 +210,21 @@ class YOLOInference:
         return detections
 
     def iou(self, bbox1: BoundingBox, bbox2: BoundingBox) -> float:
-        """Calculate Intersection over Union between two bounding boxes.
+        """Calculate Intersection over Union (IoU) between two bounding boxes.
+
+        IoU measures the overlap between two bounding boxes, computed as:
+        IoU = intersection_area / (bbox1_area + bbox2_area - intersection_area)
+
+        Used by NMS to determine which boxes are duplicates (high IoU means
+        they're detecting the same object).
 
         Args:
-            bbox1: First BoundingBox
-            bbox2: Second BoundingBox
+            bbox1: First BoundingBox in normalized coordinates.
+            bbox2: Second BoundingBox in normalized coordinates.
 
         Returns:
-            IoU value (0-1)
+            IoU value between 0 (no overlap) and 1 (perfect overlap).
+
         """
         # Get corner coordinates
         x1_min, y1_min, x1_max, y1_max = bbox1.to_corners()
@@ -174,21 +249,41 @@ class YOLOInference:
         return iou
 
     def non_max_suppression(
-        self, detections: list[Detection], nms_threshold: float = None, iou_threshold: float = None
+        self,
+        detections: list[Detection],
+        nms_threshold: float = None,
+        iou_threshold: float = None,
     ) -> list[Detection]:
-        """Apply non-maximum suppression to remove overlapping boxes.
+        """Apply Non-Maximum Suppression (NMS) to remove duplicate detections.
+
+        NMS eliminates redundant overlapping boxes for the same object by keeping
+        only the highest-confidence detection and suppressing others that overlap
+        significantly (IoU above threshold).
+
+        Process:
+        1. Sort all detections by confidence (descending)
+        2. Keep the highest-confidence box
+        3. Remove all boxes of the same class with IoU > threshold
+        4. Repeat until all boxes are processed
 
         Args:
-            detections: List of Detection objects
-            nms_threshold: IoU threshold for suppression (preferred)
-            iou_threshold: Deprecated, use nms_threshold instead
+            detections: List of Detection objects to filter.
+            nms_threshold: IoU threshold for suppression (preferred parameter name).
+                Boxes with IoU > threshold are considered duplicates. Default: 0.4.
+            iou_threshold: Deprecated parameter name, use nms_threshold instead.
 
         Returns:
-            Filtered list of Detection objects
+            Filtered list of Detection objects with duplicates removed.
+
+        Note:
+            NMS is applied per-class, so boxes of different classes are never
+            suppressed against each other even if they overlap.
+
         """
         # Support both nms_threshold and iou_threshold for backward compatibility
         if iou_threshold is not None:
             import warnings
+
             warnings.warn(
                 "Parameter 'iou_threshold' is deprecated, use 'nms_threshold' instead.",
                 DeprecationWarning,

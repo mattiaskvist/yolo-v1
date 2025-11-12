@@ -5,6 +5,26 @@ import torch.nn as nn
 
 
 class YOLOLoss(nn.Module):
+    """YOLO v1 loss function implementation.
+
+    Implements the multi-part loss function from the original YOLO paper:
+    1. Localization loss: Penalizes errors in bounding box coordinates (x, y, w, h)
+    2. Confidence loss: Penalizes errors in objectness predictions
+    3. Classification loss: Penalizes errors in class probability predictions
+
+    The loss uses different weights for different components:
+    - lambda_coord: Increases importance of box coordinate predictions
+    - lambda_noobj: Decreases importance of confidence predictions for cells without objects
+
+    Attributes:
+        S: Grid size (typically 7).
+        B: Number of bounding boxes per cell (typically 2).
+        C: Number of classes (typically 20 for PASCAL VOC).
+        lambda_coord: Weight for coordinate loss (default 5.0).
+        lambda_noobj: Weight for no-object confidence loss (default 0.5).
+
+    """
+
     def __init__(
         self,
         S: int = 7,
@@ -13,6 +33,18 @@ class YOLOLoss(nn.Module):
         lambda_coord: float = 5.0,
         lambda_noobj: float = 0.5,
     ):
+        """Initialize YOLO loss function.
+
+        Args:
+            S: Grid size for spatial divisions (default 7 for 7x7 grid).
+            B: Number of bounding boxes predicted per grid cell (default 2).
+            C: Number of object classes (default 20 for PASCAL VOC).
+            lambda_coord: Weight multiplier for coordinate loss to increase
+                importance of box localization (default 5.0 from paper).
+            lambda_noobj: Weight multiplier for no-object confidence loss to
+                decrease importance of background predictions (default 0.5 from paper).
+
+        """
         super().__init__()
         self.S = S
         self.B = B
@@ -23,8 +55,7 @@ class YOLOLoss(nn.Module):
     def forward(
         self, predictions: torch.Tensor, targets: torch.Tensor
     ) -> tuple[torch.Tensor, dict[str, float]]:
-        """
-        Computes the YOLO v1 loss.
+        """Computes the YOLO v1 loss.
 
         Args:
             predictions (torch.Tensor): Predicted tensor of shape (N, S, S, B*5 + C), where
@@ -51,6 +82,7 @@ class YOLOLoss(nn.Module):
                 - Confidence loss for object and no-object cells.
                 - Classification loss for cells containing objects.
             The responsible bounding box for each object is the one with the highest IoU with the ground truth.
+
         """
         N = predictions.size(0)
         device = predictions.device
@@ -141,9 +173,20 @@ class YOLOLoss(nn.Module):
 
     @staticmethod
     def compute_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-        """
-        boxes1: (N, S, S, B, 4)
-        boxes2: (N, S, S, 1, 4)
+        """Compute Intersection over Union (IoU) between two sets of boxes.
+
+        Calculates IoU for determining which predicted box is responsible for
+        each ground truth object (highest IoU wins).
+
+        Args:
+            boxes1: Predicted boxes of shape (N, S, S, B, 4) where last dim is
+                (x_center, y_center, width, height) in normalized coordinates.
+            boxes2: Ground truth boxes of shape (N, S, S, 1, 4) in same format.
+
+        Returns:
+            IoU values of shape (N, S, S, B), one IoU score for each predicted box
+            against the ground truth box in that cell.
+
         """
         box1_x1 = boxes1[..., 0] - boxes1[..., 2] / 2
         box1_y1 = boxes1[..., 1] - boxes1[..., 3] / 2

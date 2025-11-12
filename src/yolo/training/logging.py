@@ -26,6 +26,7 @@ def print_loss_metrics(
         prefix: Prefix label (e.g., "Training", "Validation")
         losses: Dictionary of loss values
         epoch: Optional epoch number to include in output
+
     """
     epoch_str = f" - Epoch {epoch}" if epoch is not None else ""
     print(f"\n{prefix}{epoch_str} Average Loss: {losses['total']:.4f}")
@@ -40,6 +41,7 @@ def print_map_metrics(metrics: dict[str, float]) -> None:
 
     Args:
         metrics: Dictionary containing mAP, precision, recall values
+
     """
     if "mAP50:95" not in metrics:
         return
@@ -68,6 +70,7 @@ def print_dataset_info(
         train_size: Number of training images
         val_size: Number of validation images
         augmentation_enabled: Whether data augmentation is enabled
+
     """
     print("\nLoading datasets...")
     print(f"Train dataset: {train_size} images")
@@ -84,6 +87,7 @@ def print_model_info(total_params: int, trainable_params: int) -> None:
     Args:
         total_params: Total number of parameters
         trainable_params: Number of trainable parameters
+
     """
     print("\nCreating model...")
     print(f"Total parameters: {total_params:,}")
@@ -96,6 +100,7 @@ def print_training_config(args) -> None:
 
     Args:
         args: Parsed command line arguments
+
     """
     print("\nStarting training...")
     print("Configuration:")
@@ -114,6 +119,7 @@ def print_tensorboard_info(log_dir: Path, log_root: str) -> None:
     Args:
         log_dir: Directory where logs are being saved
         log_root: Root directory for tensorboard command
+
     """
     print("\nTensorBoard logging enabled")
     print(f"Log directory: {log_dir}")
@@ -129,6 +135,7 @@ def print_checkpoint_saved(
         checkpoint_path: Path where checkpoint was saved
         metric_name: Optional metric name (e.g., "val_loss", "mAP@0.5:0.95")
         metric_value: Optional metric value
+
     """
     if metric_name and metric_value is not None:
         print(
@@ -158,6 +165,7 @@ def log_batch_metrics(
         epoch: Current epoch number
         batch_idx: Current batch index (0-indexed)
         num_batches: Total number of batches in epoch
+
     """
     if writer is None:
         return
@@ -185,6 +193,7 @@ def log_epoch_metrics(
         val_losses: Dictionary containing validation loss and metric values
         learning_rate: Current learning rate
         epoch: Current epoch number
+
     """
     if writer is None:
         return
@@ -240,6 +249,7 @@ def log_hyperparameters(
         writer: TensorBoard SummaryWriter instance
         hparams: Dictionary containing hyperparameter values
         final_metrics: Dictionary containing final metric values
+
     """
     if writer is None:
         return

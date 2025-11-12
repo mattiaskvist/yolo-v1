@@ -1,6 +1,4 @@
-"""
-Visualization utilities for YOLO predictions.
-"""
+"""Visualization utilities for YOLO predictions."""
 
 import platform
 from pathlib import Path
@@ -41,19 +39,43 @@ def draw_detections(
     box_width: int = 3,
     font_size: int = 20,
 ) -> Image.Image:
-    """
-    Draw bounding boxes and labels on image.
+    """Draw bounding boxes and labels on an image for visualization.
+
+    Creates a copy of the input image and draws colored bounding boxes with
+    class labels and confidence scores for each detection. Supports both
+    Detection objects (new API) and legacy tuple format for backward compatibility.
+
+    Each class is assigned a consistent color, and boxes are drawn with labels
+    showing "ClassName: 0.95" format. Low-confidence detections below the
+    threshold are filtered out.
 
     Args:
-        image: PIL Image
-        detections: List of Detection objects or tuples [(class_id, conf, x, y, w, h), ...]
-        class_names: List of class names (optional if Detection objects have class_name)
-        conf_threshold: Only draw boxes with confidence above this
-        box_width: Width of bounding box lines
-        font_size: Size of text labels
+        image: PIL Image in RGB format to draw on.
+        detections: List of Detection objects or legacy tuples in format
+            [(class_id, confidence, x, y, w, h), ...] with normalized coords.
+        class_names: List of class names for labeling. Optional if Detection
+            objects already have class_name attribute.
+        conf_threshold: Minimum confidence to draw. Detections below this are
+            skipped. Default 0.5.
+        box_width: Width of bounding box lines in pixels. Default 3.
+        font_size: Font size for labels in points. Default 20.
 
     Returns:
-        Image with drawn boxes
+        New PIL Image with bounding boxes and labels drawn. Original image
+        is not modified.
+
+    Example:
+        >>> from PIL import Image
+        >>> from yolo import YOLOInference
+        >>> from yolo.dataset import VOC_CLASSES
+        >>> from yolo.models import YOLOv1
+        >>> model = YOLOv1(num_classes=20)
+        >>> model.load_state_dict(torch.load('checkpoint.pth')['model_state_dict'])
+        >>> inference = YOLOInference(model)
+        >>> image = Image.open("photo.jpg")
+        >>> detections = inference.predict("photo.jpg")
+        >>> annotated = draw_detections(image, detections, VOC_CLASSES)
+        >>> annotated.save("result.jpg")
     """
     from yolo.schemas import Detection
 
@@ -114,7 +136,11 @@ def draw_detections(
             x2 = int(x_center + box_width_px / 2)
             y2 = int(y_center + box_height_px / 2)
 
-            class_name = class_names[class_id] if class_names and class_id < len(class_names) else f"Class {class_id}"
+            class_name = (
+                class_names[class_id]
+                if class_names and class_id < len(class_names)
+                else f"Class {class_id}"
+            )
 
         # Ensure x1 <= x2 and y1 <= y2 (handle negative widths/heights)
         x1, x2 = min(x1, x2), max(x1, x2)
@@ -148,14 +174,22 @@ def draw_detections(
 
 
 def _load_font(size: int = 20) -> ImageFont.ImageFont:
-    """
-    Load a cross-platform font, fall back to default if not available.
+    """Load a cross-platform TrueType font with fallback to default.
+
+    Attempts to load system fonts based on platform (macOS, Windows, Linux)
+    and falls back to PIL's default font if none are available.
+
+    Platform-specific fonts:
+    - macOS: Helvetica, Arial
+    - Windows: Arial, Segoe UI
+    - Linux: DejaVu Sans, Liberation Sans, FreeSans
 
     Args:
-        size: Font size
+        size: Font size in points. Default 20.
 
     Returns:
-        ImageFont object
+        ImageFont object, either TrueType or PIL's default bitmap font.
+
     """
     try:
         system = platform.system()
@@ -203,16 +237,30 @@ def extract_objectness_scores(
     S: int = 7,
     B: int = 2,
 ) -> torch.Tensor:
-    """
-    Extract maximum objectness/confidence scores from YOLO predictions.
+    """Extract maximum objectness/confidence scores from YOLO predictions.
+
+    For each grid cell, finds the maximum confidence score across all B
+    bounding box predictions. This creates an SxS heatmap showing where
+    the model is most confident about object presence.
+
+    Useful for visualizing model attention and debugging detection behavior.
 
     Args:
-        predictions: Tensor of shape (batch, S, S, B*5 + num_classes) or (S, S, B*5 + num_classes)
-        S: Grid size (default 7 for YOLOv1)
-        B: Number of bounding boxes per cell (default 2)
+        predictions: Tensor of shape (batch, S, S, B*5 + num_classes) or
+            (S, S, B*5 + num_classes). If batched, first image is used.
+        S: Grid size (default 7 for 7x7 grid).
+        B: Number of bounding boxes per grid cell (default 2).
 
     Returns:
-        Tensor of shape (S, S) containing maximum confidence score for each grid cell
+        Tensor of shape (S, S) containing maximum confidence score (0-1)
+        for each grid cell across all B box predictions.
+
+    Example:
+        >>> predictions = model(image)  # Shape: (1, 7, 7, 30)
+        >>> heatmap = extract_objectness_scores(predictions)
+        >>> print(heatmap.shape)  # torch.Size([7, 7])
+        >>> print(f"Max confidence: {heatmap.max():.2f}")
+
     """
     # Ensure predictions is 3D: [S, S, B*5 + num_classes]
     if predictions.dim() == 4:
@@ -238,17 +286,32 @@ def visualize_objectness_grid(
     B: int = 2,
     img_size: int = 448,
 ) -> torch.Tensor:
-    """Visualize the objectness score grid for a YOLO model.
+    """Visualize YOLO objectness scores as a heatmap and overlay.
+
+    Creates a matplotlib figure with three panels:
+    1. Original image
+    2. Objectness heatmap showing confidence scores per grid cell
+    3. Heatmap overlaid on the image
+
+    Useful for understanding where the model is looking for objects and
+    debugging detection performance.
 
     Args:
-        predictions: Tensor of shape (B, S*S, 5+C) containing the model predictions
-        grid_size: Size of the grid (S)
-        img_size: Size of the input image (width/height)
+        image: PIL Image to visualize.
+        predictions: Tensor of shape (B, S*S, 5+C) containing model predictions.
+        B: Number of bounding boxes per cell (default 2).
+        img_size: Size to resize image for visualization (default 448).
 
     Returns:
-        None
-    """
+        Numpy array of shape (S, S) containing objectness scores for each cell.
+        Returned after the matplotlib plot window is closed by the user.
 
+    Note:
+        This function displays an interactive matplotlib plot and blocks execution
+        until the window is closed. For non-blocking visualization that returns
+        an image without requiring user interaction, use draw_objectness_grid_on_image().
+
+    """
     # Extract maximum objectness scores
     max_conf = (
         extract_objectness_scores(predictions, S=predictions.shape[1], B=B)
@@ -294,16 +357,33 @@ def visualize_objectness_grid(
 def draw_objectness_grid_on_image(
     predictions, image, S=7, B=2, img_size=448
 ) -> Image.Image:
-    """Draw grid with objectness scores as text on the image.
+    """Draw grid lines and objectness scores on an image for visualization.
+
+    Creates a visual representation of the YOLO grid structure by drawing:
+    - Grid lines dividing the image into SxS cells
+    - Confidence scores as text overlaid on each cell
+
+    This helps understand the model's spatial predictions and see which
+    regions have high objectness scores.
 
     Args:
-        predictions: Tensor of shape (S, S, B*5 + num_classes)
-        image: PIL Image
-        S: Grid size (default 7 for YOLOv1)
-        B: Number of bounding boxes per cell (default 2)
-        img_size: Size to resize image for drawing grid (default 448)
+        predictions: Tensor of shape (S, S, B*5 + num_classes) containing
+            model predictions.
+        image: PIL Image to draw on.
+        S: Grid size for SxS divisions (default 7).
+        B: Number of bounding boxes per cell (default 2).
+        img_size: Size to resize image before drawing (default 448).
+
     Returns:
-        PIL Image with grid and objectness scores drawn on it.
+        PIL Image with grid lines and objectness scores drawn on it.
+
+    Example:
+        >>> predictions = model(preprocessed_image)
+        >>> result = draw_objectness_grid_on_image(
+        ...     predictions[0], image, S=7, B=2
+        ... )
+        >>> result.save("objectness_grid.jpg")
+
     """
     # Extract maximum objectness scores
     max_conf = extract_objectness_scores(predictions, S=S, B=B).cpu().numpy()
