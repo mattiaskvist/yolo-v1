@@ -1,5 +1,4 @@
-"""Pydantic schemas for YOLO predictions and results.
-"""
+"""Pydantic schemas for YOLO predictions and results."""
 
 from pydantic import BaseModel, Field
 
@@ -78,6 +77,8 @@ class Detection(BaseModel):
     """Single object detection with class and bounding box."""
 
     class_id: int = Field(..., ge=0, description="Predicted class ID")
-    class_name: str | None = Field(None, description="Class name (e.g., 'person', 'car')")
+    class_name: str | None = Field(
+        None, description="Class name (e.g., 'person', 'car')"
+    )
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
     bbox: BoundingBox = Field(..., description="Bounding box coordinates")
