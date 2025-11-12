@@ -93,15 +93,18 @@ def predict_single_image(
     # Run prediction
     print(f"\nProcessing: {image_path}")
     detections = inference.predict(
-        image_path, conf_threshold=conf_threshold, nms_threshold=nms_threshold
+        image_path,
+        conf_threshold=conf_threshold,
+        nms_threshold=nms_threshold,
+        class_names=class_names,
     )
 
     # Print results
     print(f"Found {len(detections)} objects:")
     for i, det in enumerate(detections, 1):
-        class_id, conf, x, y, w, h = det
         print(
-            f"  {i}. {class_names[class_id]}: {conf:.2f} at ({x:.2f}, {y:.2f}) size ({w:.2f}, {h:.2f})"
+            f"  {i}. {det.class_name}: {det.confidence:.2f} at "
+            f"({det.bbox.x:.2f}, {det.bbox.y:.2f}) size ({det.bbox.width:.2f}, {det.bbox.height:.2f})"
         )
 
     # Visualize if requested

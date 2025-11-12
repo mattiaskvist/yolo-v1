@@ -1,6 +1,5 @@
 import pytest
 import torch
-import numpy as np
 from PIL import Image
 import tempfile
 import os
@@ -8,6 +7,7 @@ from typing import Generator
 
 from yolo.inference import YOLOInference
 from yolo.models import YOLOv1
+from yolo.schemas import Detection, BoundingBox
 
 
 @pytest.fixture
@@ -58,7 +58,7 @@ class TestYOLOInference:
     def test_predict_returns_list(
         self, inference_engine: YOLOInference, sample_image: str
     ) -> None:
-        """Test that predict returns a list"""
+        """Test that predict returns a list of detections"""
         detections = inference_engine.predict(sample_image)
 
         assert isinstance(detections, list)
@@ -82,19 +82,31 @@ class TestYOLOInference:
         with pytest.raises(FileNotFoundError):
             inference_engine.predict("nonexistent_image.jpg")
 
-    def test_parse_predictions_shape(
-        self, inference_engine: YOLOInference, sample_predictions: torch.Tensor
-    ) -> None:
+    def test_parse_predictions_shape(self, inference_engine: YOLOInference) -> None:
         """Test parse_predictions output format"""
-        detections = inference_engine.parse_predictions(
-            sample_predictions, conf_threshold=0.5
-        )
+        # Create a prediction tensor with valid values (0-1 range)
+        pred = torch.zeros(7, 7, 30)
+        # Set one valid high confidence box with valid coordinates
+        pred[2, 3, 0:5] = torch.tensor([0.5, 0.5, 0.3, 0.3, 0.9])
+        pred[2, 3, 10] = 0.8  # class probability
+
+        detections = inference_engine.parse_predictions(pred, conf_threshold=0.5)
 
         assert isinstance(detections, list)
         for det in detections:
-            assert len(det) == 6  # [class_id, conf, x, y, w, h]
-            # Confidence can be > 1 since it's conf * class_prob without sigmoid
-            assert det[1] >= 0  # confidence should be non-negative
+            assert isinstance(det, Detection)
+            # Accept both Python int and torch scalar types for class_id
+            assert isinstance(det.class_id, int) or (
+                hasattr(det.class_id, "item") and isinstance(det.class_id.item(), int)
+            )
+            assert isinstance(det.confidence, float)
+            assert isinstance(det.bbox, BoundingBox)
+            assert det.confidence >= 0  # confidence should be non-negative
+            # Verify bbox values are valid (0-1)
+            assert 0 <= det.bbox.x <= 1
+            assert 0 <= det.bbox.y <= 1
+            assert 0 <= det.bbox.width <= 1
+            assert 0 <= det.bbox.height <= 1
 
     def test_parse_predictions_confidence_threshold(
         self, inference_engine: YOLOInference
@@ -111,33 +123,103 @@ class TestYOLOInference:
         assert len(detections_low) > 0
         assert len(detections_high) == 0
 
+    def test_detection_bbox_validation(self) -> None:
+        """Test that BoundingBox validates coordinates"""
+        # Valid bbox
+        bbox = BoundingBox(x=0.5, y=0.5, width=0.3, height=0.3)
+        assert bbox.x == 0.5
+        assert bbox.area == pytest.approx(0.09, abs=1e-6)
+
+        # Invalid coordinates should raise error
+        with pytest.raises(ValueError):
+            BoundingBox(x=1.5, y=0.5, width=0.3, height=0.3)  # x > 1
+
+        with pytest.raises(ValueError):
+            BoundingBox(x=0.5, y=0.5, width=-0.1, height=0.3)  # negative width
+
+    def test_detection_coordinate_conversion(self) -> None:
+        """Test BoundingBox coordinate conversion methods"""
+        bbox = BoundingBox(x=0.5, y=0.5, width=0.4, height=0.6)
+
+        # Test to_corners
+        x1, y1, x2, y2 = bbox.to_corners()
+        assert x1 == pytest.approx(0.3, abs=1e-6)
+        assert y1 == pytest.approx(0.2, abs=1e-6)
+        assert x2 == pytest.approx(0.7, abs=1e-6)
+        assert y2 == pytest.approx(0.8, abs=1e-6)
+
+        # Test to_pixel_coords
+        x1_px, y1_px, x2_px, y2_px = bbox.to_pixel_coords(640, 480)
+        assert x1_px == pytest.approx(192, abs=1)
+        assert y1_px == pytest.approx(96, abs=1)
+        assert x2_px == pytest.approx(448, abs=1)
+        assert y2_px == pytest.approx(384, abs=1)
+
+    def test_detections_list(self) -> None:
+        """Test working with list of Detection objects"""
+        detections = [
+            Detection(
+                class_id=0,
+                class_name="class0",
+                confidence=0.9,
+                bbox=BoundingBox(x=0.5, y=0.5, width=0.3, height=0.3),
+            ),
+            Detection(
+                class_id=1,
+                class_name="class1",
+                confidence=0.6,
+                bbox=BoundingBox(x=0.3, y=0.3, width=0.2, height=0.2),
+            ),
+            Detection(
+                class_id=0,
+                class_name="class0",
+                confidence=0.4,
+                bbox=BoundingBox(x=0.7, y=0.7, width=0.2, height=0.2),
+            ),
+        ]
+
+        # Test basic properties
+        assert len(detections) == 3
+        assert detections[0].confidence == 0.9
+
+        # Filter detections by confidence > 0.5
+        filtered = [d for d in detections if d.confidence > 0.5]
+        assert len(filtered) == 2
+        assert all(d.confidence > 0.5 for d in filtered)
+
+        # Sort detections by confidence descending
+        sorted_dets = sorted(detections, key=lambda d: d.confidence, reverse=True)
+        assert sorted_dets[0].confidence == 0.9
+        assert sorted_dets[1].confidence == 0.6
+        assert sorted_dets[2].confidence == 0.4
+
     def test_iou_identical_boxes(self, inference_engine: YOLOInference) -> None:
         """Test IoU of identical boxes"""
-        box = [0.5, 0.5, 0.3, 0.3]
+        box = BoundingBox(x=0.5, y=0.5, width=0.3, height=0.3)
         iou = inference_engine.iou(box, box)
 
         assert iou == pytest.approx(1.0, abs=1e-4)
 
     def test_iou_no_overlap(self, inference_engine: YOLOInference) -> None:
         """Test IoU of non-overlapping boxes"""
-        box1 = [0.2, 0.2, 0.1, 0.1]
-        box2 = [0.8, 0.8, 0.1, 0.1]
+        box1 = BoundingBox(x=0.2, y=0.2, width=0.1, height=0.1)
+        box2 = BoundingBox(x=0.8, y=0.8, width=0.1, height=0.1)
         iou = inference_engine.iou(box1, box2)
 
         assert iou == pytest.approx(0.0, abs=1e-5)
 
     def test_iou_partial_overlap(self, inference_engine: YOLOInference) -> None:
         """Test IoU of partially overlapping boxes"""
-        box1 = [0.5, 0.5, 0.4, 0.4]
-        box2 = [0.6, 0.6, 0.4, 0.4]
+        box1 = BoundingBox(x=0.5, y=0.5, width=0.4, height=0.4)
+        box2 = BoundingBox(x=0.6, y=0.6, width=0.4, height=0.4)
         iou = inference_engine.iou(box1, box2)
 
         assert 0 < iou < 1
 
     def test_iou_symmetry(self, inference_engine: YOLOInference) -> None:
         """Test that IoU is symmetric"""
-        box1 = [0.3, 0.3, 0.2, 0.2]
-        box2 = [0.4, 0.4, 0.2, 0.2]
+        box1 = BoundingBox(x=0.3, y=0.3, width=0.2, height=0.2)
+        box2 = BoundingBox(x=0.4, y=0.4, width=0.2, height=0.2)
 
         iou1 = inference_engine.iou(box1, box2)
         iou2 = inference_engine.iou(box2, box1)
@@ -146,14 +228,21 @@ class TestYOLOInference:
 
     def test_nms_empty_list(self, inference_engine):
         """Test NMS with empty detection list"""
-        detections = inference_engine.non_max_suppression([], nms_threshold=0.5)
+        detections = inference_engine.non_max_suppression([], iou_threshold=0.5)
 
         assert detections == []
 
     def test_nms_single_detection(self, inference_engine: YOLOInference) -> None:
         """Test NMS with single detection"""
-        detections = [[0, 0.9, 0.5, 0.5, 0.3, 0.3]]
-        result = inference_engine.non_max_suppression(detections, nms_threshold=0.5)
+        detections = [
+            Detection(
+                class_id=0,
+                class_name="test",
+                confidence=0.9,
+                bbox=BoundingBox(x=0.5, y=0.5, width=0.3, height=0.3),
+            )
+        ]
+        result = inference_engine.non_max_suppression(detections, iou_threshold=0.5)
 
         assert len(result) == 1
         assert result[0] == detections[0]
@@ -163,21 +252,41 @@ class TestYOLOInference:
     ) -> None:
         """Test that NMS removes overlapping boxes of same class"""
         detections = [
-            [0, 0.9, 0.5, 0.5, 0.3, 0.3],  # High confidence
-            [0, 0.7, 0.52, 0.52, 0.3, 0.3],  # Lower confidence, overlapping
+            Detection(
+                class_id=0,
+                class_name="test",
+                confidence=0.9,
+                bbox=BoundingBox(x=0.5, y=0.5, width=0.3, height=0.3),
+            ),  # High confidence
+            Detection(
+                class_id=0,
+                class_name="test",
+                confidence=0.7,
+                bbox=BoundingBox(x=0.52, y=0.52, width=0.3, height=0.3),
+            ),  # Lower confidence, overlapping
         ]
-        result = inference_engine.non_max_suppression(detections, nms_threshold=0.3)
+        result = inference_engine.non_max_suppression(detections, iou_threshold=0.3)
 
         assert len(result) == 1
-        assert result[0][1] == 0.9  # Kept the higher confidence box
+        assert result[0].confidence == 0.9  # Kept the higher confidence box
 
     def test_nms_keeps_different_classes(self, inference_engine: YOLOInference) -> None:
         """Test that NMS keeps boxes of different classes"""
         detections = [
-            [0, 0.9, 0.5, 0.5, 0.3, 0.3],  # Class 0
-            [1, 0.8, 0.52, 0.52, 0.3, 0.3],  # Class 1, overlapping
+            Detection(
+                class_id=0,
+                class_name="test0",
+                confidence=0.9,
+                bbox=BoundingBox(x=0.5, y=0.5, width=0.3, height=0.3),
+            ),  # Class 0
+            Detection(
+                class_id=1,
+                class_name="test1",
+                confidence=0.8,
+                bbox=BoundingBox(x=0.52, y=0.52, width=0.3, height=0.3),
+            ),  # Class 1, overlapping
         ]
-        result = inference_engine.non_max_suppression(detections, nms_threshold=0.3)
+        result = inference_engine.non_max_suppression(detections, iou_threshold=0.3)
 
         assert len(result) == 2
 
@@ -186,31 +295,42 @@ class TestYOLOInference:
     ) -> None:
         """Test that NMS keeps non-overlapping boxes"""
         detections = [
-            [0, 0.9, 0.2, 0.2, 0.1, 0.1],  # Box 1
-            [0, 0.8, 0.8, 0.8, 0.1, 0.1],  # Box 2, far away
+            Detection(
+                class_id=0,
+                class_name="test",
+                confidence=0.9,
+                bbox=BoundingBox(x=0.2, y=0.2, width=0.1, height=0.1),
+            ),  # Box 1
+            Detection(
+                class_id=0,
+                class_name="test",
+                confidence=0.8,
+                bbox=BoundingBox(x=0.8, y=0.8, width=0.1, height=0.1),
+            ),  # Box 2, far away
         ]
-        result = inference_engine.non_max_suppression(detections, nms_threshold=0.5)
+        result = inference_engine.non_max_suppression(detections, iou_threshold=0.5)
 
         assert len(result) == 2
 
     def test_detection_format(
-        self, inference_engine: YOLOInference, sample_image: torch.Tensor
+        self, inference_engine: YOLOInference, sample_image: str
     ) -> None:
         """Test that detections have correct format"""
         detections = inference_engine.predict(sample_image, conf_threshold=0.1)
 
         for det in detections:
-            assert len(det) == 6
-            class_id, conf, x, y, w, h = det
+            assert isinstance(det, Detection)
+            assert isinstance(det.class_id, int)
+            assert isinstance(det.confidence, float)
+            assert isinstance(det.bbox, BoundingBox)
 
-            assert conf >= 0
-            assert isinstance(class_id, (int, np.integer))
-            assert 0 <= class_id < 20
-            assert 0 <= conf <= 1
-            assert 0 <= x <= 1
-            assert 0 <= y <= 1
-            assert 0 <= w <= 1
-            assert 0 <= h <= 1
+            assert det.confidence >= 0
+            assert 0 <= det.class_id < 20
+            assert 0 <= det.confidence <= 1
+            assert 0 <= det.bbox.x <= 1
+            assert 0 <= det.bbox.y <= 1
+            assert 0 <= det.bbox.width <= 1
+            assert 0 <= det.bbox.height <= 1
 
 
 class TestTransform:

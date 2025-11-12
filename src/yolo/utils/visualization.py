@@ -36,7 +36,7 @@ VOC_CLASSES = [
 def draw_detections(
     image: Image.Image,
     detections: list,
-    class_names: list[str],
+    class_names: list[str] | None = None,
     conf_threshold: float = 0.5,
     box_width: int = 3,
     font_size: int = 20,
@@ -46,8 +46,8 @@ def draw_detections(
 
     Args:
         image: PIL Image
-        detections: List of detections [(class_id, conf, x, y, w, h), ...]
-        class_names: List of class names
+        detections: List of Detection objects or tuples [(class_id, conf, x, y, w, h), ...]
+        class_names: List of class names (optional if Detection objects have class_name)
         conf_threshold: Only draw boxes with confidence above this
         box_width: Width of bounding box lines
         font_size: Size of text labels
@@ -55,6 +55,8 @@ def draw_detections(
     Returns:
         Image with drawn boxes
     """
+    from yolo.schemas import Detection
+
     # Create a copy to draw on
     img_draw = image.copy()
     draw = ImageDraw.Draw(img_draw)
@@ -80,23 +82,39 @@ def draw_detections(
 
     # Draw each detection
     for det in detections:
-        class_id, conf, x, y, w, h = det
+        # Handle both Detection objects and legacy tuples
+        if isinstance(det, Detection):
+            class_id = det.class_id
+            conf = det.confidence
+            class_name = det.class_name
 
-        # Skip low confidence detections
-        if conf < conf_threshold:
-            continue
+            # Skip low confidence detections
+            if conf < conf_threshold:
+                continue
 
-        # Convert from normalized coordinates to pixel coordinates
-        x_center = x * img_width
-        y_center = y * img_height
-        box_width_px = w * img_width
-        box_height_px = h * img_height
+            # Get pixel coordinates directly
+            x1, y1, x2, y2 = det.bbox.to_pixel_coords(img_width, img_height)
+        else:
+            # Legacy tuple format
+            class_id, conf, x, y, w, h = det
 
-        # Convert to corner coordinates
-        x1 = int(x_center - box_width_px / 2)
-        y1 = int(y_center - box_height_px / 2)
-        x2 = int(x_center + box_width_px / 2)
-        y2 = int(y_center + box_height_px / 2)
+            # Skip low confidence detections
+            if conf < conf_threshold:
+                continue
+
+            # Convert from normalized coordinates to pixel coordinates
+            x_center = x * img_width
+            y_center = y * img_height
+            box_width_px = w * img_width
+            box_height_px = h * img_height
+
+            # Convert to corner coordinates
+            x1 = int(x_center - box_width_px / 2)
+            y1 = int(y_center - box_height_px / 2)
+            x2 = int(x_center + box_width_px / 2)
+            y2 = int(y_center + box_height_px / 2)
+
+            class_name = class_names[class_id] if class_names and class_id < len(class_names) else f"Class {class_id}"
 
         # Ensure x1 <= x2 and y1 <= y2 (handle negative widths/heights)
         x1, x2 = min(x1, x2), max(x1, x2)
@@ -119,7 +137,7 @@ def draw_detections(
         draw.rectangle([x1, y1, x2, y2], outline=color, width=box_width)
 
         # Draw label
-        label = f"{class_names[class_id]}: {conf:.2f}"
+        label = f"{class_name}: {conf:.2f}"
 
         # Get text bounding box for background
         bbox = draw.textbbox((x1, y1 - 25), label, font=font)

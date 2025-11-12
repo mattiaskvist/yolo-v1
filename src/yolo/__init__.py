@@ -10,12 +10,15 @@ from .models import (
     YOLOv1,
     YOLOv1Backbone,
 )
+from .schemas import Detection, BoundingBox
 
 __version__ = "0.1.0"
 
 __all__ = [
     "Backbone",
+    "BoundingBox",
     "CombinedVOCDataset",
+    "Detection",
     "DetectionHead",
     "ResNetBackbone",
     "VOCDetectionYOLO",
