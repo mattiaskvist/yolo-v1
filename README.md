@@ -1,5 +1,7 @@
 # YOLO v1 Object Detection
 
+![Detection Examples](assets/prediction_examples.png)
+
 [![Tests](https://github.com/mattiaskvist/yolo-v1/actions/workflows/pytest.yml/badge.svg)](https://github.com/mattiaskvist/yolo-v1/actions/workflows/pytest.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![arXiv](https://img.shields.io/badge/arXiv-1506.02640-b31b1b.svg)](https://arxiv.org/abs/1506.02640)
