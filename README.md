@@ -193,6 +193,15 @@ Training and evaluation use **PASCAL VOC 2007 and 2012** datasets:
 
 Datasets are automatically downloaded from Kaggle during first training.
 
-## Acknowledgments
+## Citation
 
-- **Original Paper**: [You Only Look Once: Unified, Real-Time Object Detection](https://arxiv.org/abs/1506.02640) by Joseph Redmon et al.
+If you use this project in your research, please cite the original YOLO paper:
+
+```bibtex
+@article{Redmon_2016_CVPR,
+    author    = {Redmon, Joseph and Divvala, Santosh and Girshick, Ross and Farhadi, Ali},
+    title     = {You Only Look Once: Unified, Real-Time Object Detection},
+    booktitle = {Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+    month     = {June},
+    year      = {2016}
+}```
