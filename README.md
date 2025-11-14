@@ -5,7 +5,8 @@
 [![Tests](https://github.com/mattiaskvist/yolo-v1/actions/workflows/pytest.yml/badge.svg)](https://github.com/mattiaskvist/yolo-v1/actions/workflows/pytest.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![arXiv](https://img.shields.io/badge/arXiv-1506.02640-b31b1b.svg)](https://arxiv.org/abs/1506.02640)
-[![Model on Hugging Face](https://img.shields.io/badge/huggingface-%F0%9F%A4%97-blue)](https://huggingface.co/mattiaskvist/yolo-v1)
+[![Weights](https://img.shields.io/badge/Weights-%F0%9F%A4%97-blue)](https://huggingface.co/mattiaskvist/yolo-v1)
+[![Demo](https://img.shields.io/badge/Demo-%F0%9F%A4%97-blue)](https://huggingface.co/spaces/mattiaskvist/yolo-v1)
 
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch 2.8+](https://img.shields.io/badge/pytorch-2.8+-red.svg)](https://pytorch.org/)
