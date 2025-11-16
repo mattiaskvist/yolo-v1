@@ -59,6 +59,8 @@ Evaluated on PASCAL VOC 2007 test set (4,952 images):
 | Medium (32×32-96×96) | 9.25% | 9.94% | 4,126 |
 | Small (<32×32) | 8.18% | 8.18% | 875 |
 
+**Pretrained weights available**: Model checkpoint with ResNet50 backbone trained on PASCAL VOC is available for download on [🤗 Hugging Face](https://huggingface.co/mattiaskvist/yolo-v1).
+
 ## Installation
 
 ### Prerequisites
@@ -124,6 +126,8 @@ uv run src/evaluate.py --checkpoint checkpoints/yolo_best.pth --device mps
 Note: if trained on Modal, download the checkpoint from the `checkpoints/` directory in your Modal project.
 
 ### Inference
+
+**Pretrained weights**: Download the ResNet50 checkpoint from [🤗 Hugging Face](https://huggingface.co/mattiaskvist/yolo-v1/blob/main/yolo_best.pth) and place it in `checkpoints/`.
 
 ```bash
 # Run inference on images
