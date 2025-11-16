@@ -71,7 +71,7 @@ class BoundingBox(BaseModel):
         x = x1 + width / 2
         y = y1 + height / 2
         return cls(x=x, y=y, width=width, height=height)
-    
+
     # custom str method for easier reading
     def __str__(self) -> str:
         x1, y1, x2, y2 = self.to_corners()
