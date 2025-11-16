@@ -77,7 +77,6 @@ def draw_detections(
         >>> annotated = draw_detections(image, detections, VOC_CLASSES)
         >>> annotated.save("result.jpg")
     """
-    from yolo.schemas import Detection
 
     # Create a copy to draw on
     img_draw = image.copy()
@@ -104,43 +103,18 @@ def draw_detections(
 
     # Draw each detection
     for det in detections:
-        # Handle both Detection objects and legacy tuples
-        if isinstance(det, Detection):
-            class_id = det.class_id
-            conf = det.confidence
-            class_name = det.class_name
+        class_id = det.class_id
+        conf = det.confidence
+        class_name = (
+            det.class_name if hasattr(det, "class_name") else class_names[class_id]
+        )
 
-            # Skip low confidence detections
-            if conf < conf_threshold:
-                continue
+        # Skip low confidence detections
+        if conf < conf_threshold:
+            continue
 
-            # Get pixel coordinates directly
-            x1, y1, x2, y2 = det.bbox.to_pixel_coords(img_width, img_height)
-        else:
-            # Legacy tuple format
-            class_id, conf, x, y, w, h = det
-
-            # Skip low confidence detections
-            if conf < conf_threshold:
-                continue
-
-            # Convert from normalized coordinates to pixel coordinates
-            x_center = x * img_width
-            y_center = y * img_height
-            box_width_px = w * img_width
-            box_height_px = h * img_height
-
-            # Convert to corner coordinates
-            x1 = int(x_center - box_width_px / 2)
-            y1 = int(y_center - box_height_px / 2)
-            x2 = int(x_center + box_width_px / 2)
-            y2 = int(y_center + box_height_px / 2)
-
-            class_name = (
-                class_names[class_id]
-                if class_names and class_id < len(class_names)
-                else f"Class {class_id}"
-            )
+        # Get pixel coordinates directly
+        x1, y1, x2, y2 = det.bbox.to_pixel_coords(img_width, img_height)
 
         # Ensure x1 <= x2 and y1 <= y2 (handle negative widths/heights)
         x1, x2 = min(x1, x2), max(x1, x2)
