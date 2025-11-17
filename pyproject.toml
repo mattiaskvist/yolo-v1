@@ -15,6 +15,7 @@ dependencies = [
     "torchview>=0.2.7",
     "tqdm>=4.66.0",
     "pydantic>=2.12.4",
+    "huggingface-hub>=1.1.4",
 ]
 
 [dependency-groups]
