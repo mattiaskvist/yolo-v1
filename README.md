@@ -188,6 +188,7 @@ yolo-v1/
    - Pretrained on ImageNet
    - Configurable layer freezing
    - Faster convergence
+   - Weights available on [🤗 Hugging Face](https://huggingface.co/mattiaskvist/yolo-v1)
 
 ## Dataset
 
