@@ -141,32 +141,6 @@ uv run src/predict.py \
     --nms-threshold 0.4
 ```
 
-## Project Structure
-
-```txt
-yolo-v1/
-├── src/
-│   ├── train.py              # Training script with Modal integration
-│   ├── evaluate.py           # Model evaluation on test set
-│   ├── predict.py            # Inference on images
-│   └── yolo/
-│       ├── __init__.py       # Public API exports
-│       ├── models.py         # YOLO architecture & backbones
-│       ├── loss.py           # YOLO loss function
-│       ├── dataset.py        # VOC dataset wrapper
-│       ├── inference.py      # Inference engine with NMS
-│       ├── metrics.py        # mAP evaluation metrics
-│       ├── training/         # Training utilities
-│       │   ├── trainer.py    # Training loops
-│       │   ├── logging.py    # Console & TensorBoard logging
-│       │   └── checkpoints.py # Model checkpoint management
-│       └── utils/
-│           └── visualization.py # Visualization utilities
-├── tests/                    # Test suite
-├── checkpoints/              # Model checkpoints
-└── predictions/              # Inference outputs
-```
-
 ## Architecture
 
 ### Model Overview
@@ -199,6 +173,10 @@ Training and evaluation use **PASCAL VOC 2007 and 2012** datasets:
 - **Classes**: 20 object categories (person, car, dog, etc.)
 
 Datasets are automatically downloaded from Kaggle during first training.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Citation
 
